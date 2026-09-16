@@ -1,0 +1,35 @@
+# Credenciais e configuração local
+.env
+.env.*
+!.env.example
+api_keys.json
+*.pem
+*.key
+
+# Dependências e arquivos gerados
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+output/
+logs/
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+.npm-cache/
+
+# Configurações pessoais
+.claude/
+.kilo/
+.codex/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini

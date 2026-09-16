@@ -1,0 +1,104 @@
+/* =============================================================
+   Global CSS — Reset e estilos base
+   ============================================================= */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-family);
+  font-size: var(--font-size-md);
+  color: var(--texto-secundario);
+  background-color: var(--fundo-pagina);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Links */
+a {
+  color: var(--roxo-primario);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--roxo-hover);
+  text-decoration: underline;
+}
+
+/* Botão primário roxo */
+.btn-roxo {
+  background-color: var(--roxo-primario);
+  border-color: var(--roxo-primario);
+  color: #fff;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.btn-roxo:hover,
+.btn-roxo:focus {
+  background-color: var(--roxo-hover);
+  border-color: var(--roxo-hover);
+  color: #fff;
+  box-shadow: 0 0 0 0.2rem rgba(107, 27, 154, 0.35);
+}
+.btn-roxo:disabled {
+  background-color: #9c4dcc;
+  border-color: #9c4dcc;
+  opacity: 0.7;
+}
+
+/* Botão laranja */
+.btn-laranja {
+  background-color: var(--laranja-primario);
+  border-color: var(--laranja-primario);
+  color: #fff;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.btn-laranja:hover,
+.btn-laranja:focus {
+  background-color: var(--laranja-hover);
+  border-color: var(--laranja-hover);
+  color: #fff;
+  box-shadow: 0 0 0 0.2rem rgba(230, 81, 0, 0.35);
+}
+
+/* Card padrão */
+.card-padrao {
+  background: var(--fundo-card);
+  border: 1px solid var(--borda);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 1.5rem;
+}
+
+/* Input focus roxo */
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--roxo-primario);
+  box-shadow: 0 0 0 0.2rem rgba(123, 31, 162, 0.2);
+}
+
+/* Section header */
+.section-header {
+  color: var(--roxo-escuro);
+  font-weight: 700;
+  font-size: var(--font-size-lg);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--borda);
+}
+
+/* Badge de filtro ativo */
+.badge-filtro {
+  background-color: var(--roxo-claro);
+  color: var(--roxo-escuro);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25em 0.6em;
+  border-radius: 20px;
+}

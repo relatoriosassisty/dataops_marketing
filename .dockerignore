@@ -1,0 +1,22 @@
+# O Dockerfile da API usa a raiz como contexto.
+frontend/
+.git/
+.kilo/
+.claude/
+.codex/
+**/.env
+**/.env.*
+**/api_keys.json
+**/*.pem
+**/*.key
+**/node_modules/
+**/.venv/
+**/venv/
+**/__pycache__/
+**/.pytest_cache/
+**/output/
+**/logs/
+**/*.log
+backend/tests/
+backend/docs/
+backend/scripts/
