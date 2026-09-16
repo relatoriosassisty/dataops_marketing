@@ -209,9 +209,6 @@ Só `bairros_alta_renda` é consultada no banco.
 
 | Tabela | Operações | Para que serve |
 |---|---|---|
-| `usuarios_app` | SELECT, INSERT, UPDATE | usuários/login da API (sem DELETE — desativa com `ativo=0`) |
-| `api_log_consultas` | INSERT, SELECT | log de cada consulta e soma dos limites diários |
-| `acompanhamento_financeiro` | INSERT | registra vendas efetivadas |
 | `cpf_consultas` | INSERT, SELECT, DELETE | staging temporário do enriquecimento |
 
 ---
@@ -226,7 +223,4 @@ Só `bairros_alta_renda` é consultada no banco.
 | `telephone` | ✅ | — | — | — |
 | `uf` | ✅ | — | — | — |
 | `bairros_alta_renda` | ✅ | ✅ (seed) | — | — |
-| `usuarios_app` | ✅ | ✅ | ✅ | — |
-| `api_log_consultas` | ✅ | ✅ | — | — |
-| `acompanhamento_financeiro` | — | ✅ | — | — |
 | `cpf_consultas` | ✅ | ✅ | — | ✅ |

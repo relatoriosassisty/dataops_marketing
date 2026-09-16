@@ -10,7 +10,7 @@ DB_READ_TIMEOUT e MAX_EXECUTION_TIME configurados no banco.
 
 Uso
 ---
-    # Timeout automático por role (configurado em config.py):
+    # Timeout padrão (configurado em config.py):
     @with_timeout
     def minha_rota():
         ...
@@ -23,9 +23,8 @@ Uso
 Hierarquia de timeouts
 ----------------------
   1. Timeout explícito no decorador           (se fornecido)
-  2. REQUEST_TIMEOUT_BY_ROLE[role]            (se role conhecido)
-  3. REQUEST_TIMEOUT                          (fallback)
-  4. DB_READ_TIMEOUT / MAX_EXECUTION_TIME     (camada de banco — último recurso)
+  2. REQUEST_TIMEOUT                          (fallback)
+  3. DB_READ_TIMEOUT / MAX_EXECUTION_TIME     (camada de banco — último recurso)
 
 Notas
 -----
@@ -40,7 +39,7 @@ import logging
 
 from flask import copy_current_request_context, g, jsonify
 
-from backend.config import REQUEST_TIMEOUT, REQUEST_TIMEOUT_BY_ROLE
+from backend.config import REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +58,7 @@ def with_timeout(f=None, *, timeout: int | None = None):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            # Determinar timeout: explícito > por role > padrão
-            if timeout is not None:
-                _timeout = timeout
-            else:
-                role = getattr(g, "auth_user", {}).get("role", "")
-                _timeout = REQUEST_TIMEOUT_BY_ROLE.get(role, REQUEST_TIMEOUT)
+            _timeout = timeout if timeout is not None else REQUEST_TIMEOUT
 
             # copy_current_request_context não preserva g — capturamos manualmente
             try:

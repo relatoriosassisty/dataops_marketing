@@ -28,12 +28,11 @@ import mysql.connector
 import pandas as pd
 from flask import Blueprint, g, jsonify, request, send_file
 
-from backend.auth.decorators import _get_client_ip, require_auth, require_role
+from backend.middleware.ip_filter import _get_real_ip as _get_client_ip
 from backend.config_db import DB_CONFIG, DB_CONFIG_ADMIN
 from backend.middleware.timeout_middleware import with_timeout
 from backend.utils.audit_logger import log_data_access, log_security_event
-from backend.utils.db_logger import extrair_campos_auth, registrar_log_consulta, registrar_venda
-from backend.routes.consulta.schema import ValidationError, validar_exportacao
+from backend.utils.db_logger import registrar_log_consulta
 from backend.utils.xlsx_exporter import gerar_excel_bytes
 
 enriquecimento_bp = Blueprint("enriquecimento", __name__, url_prefix="/api/v1")
@@ -233,8 +232,6 @@ def _cpfs_por_telefone(telefones: list[str]) -> list[str]:
 # ── Rota ─────────────────────────────────────────────────────────────────────
 
 @enriquecimento_bp.route("/enriquecimento", methods=["POST"])
-@require_auth
-@require_role("admin", "user")
 @with_timeout
 def enriquecimento():
     """
@@ -253,14 +250,8 @@ def enriquecimento():
     Headers: X-Enviados, X-Encontrados, X-Nao-Encontrados.
     """
     client_ip = _get_client_ip()
-    auth = g.auth_user
     request_id = getattr(g, "request_id", "")
-    key_id, nome_usuario, usuario_id = extrair_campos_auth(auth)
 
-    try:
-        exportacao = validar_exportacao(request.form.to_dict())
-    except ValidationError as e:
-        return jsonify({"ok": False, "erro": "Dados de exportação inválidos.", "detalhes": e.erros, "request_id": request_id}), 400
 
     arquivo = request.files.get("arquivo")
     tipo = request.form.get("tipo", "cpf").strip().lower()
@@ -268,8 +259,8 @@ def enriquecimento():
     if arquivo is None:
         registrar_log_consulta(
             request_id=request_id, endpoint="enriquecimento",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
+            ip=client_ip,
+            baixado=False,
             status_http=400, erro="Campo 'arquivo' ausente.",
         )
         return jsonify({
@@ -281,8 +272,8 @@ def enriquecimento():
     if tipo not in ("cpf", "telefone"):
         registrar_log_consulta(
             request_id=request_id, endpoint="enriquecimento",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
+            ip=client_ip,
+            baixado=False,
             status_http=400, erro=f"Tipo inválido: {tipo!r}.",
         )
         return jsonify({
@@ -365,15 +356,15 @@ def enriquecimento():
         log_security_event(
             "ENRIQUECIMENTO_ERROR",
             severity="ERROR",
-            subject=auth.get("subject"),
+            subject=None,
             error=str(e),
             ip=client_ip,
         )
         registrar_log_consulta(
             request_id=request_id, endpoint="enriquecimento",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             enriq_tipo=tipo, enriq_enviados=enviados,
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
+            baixado=False,
             status_http=500, erro=str(e),
         )
         return jsonify({
@@ -386,8 +377,8 @@ def enriquecimento():
     nao_encontrados = max(0, enviados - encontrados)
 
     log_data_access(
-        user=auth.get("subject", "unknown"),
-        role=auth.get("role", "unknown"),
+        user=None,
+        role=None,
         action="ENRIQUECIMENTO",
         filtros={"tipo": tipo, "enviados": enviados},
         registros_retornados=encontrados,
@@ -397,10 +388,10 @@ def enriquecimento():
     if encontrados == 0:
         registrar_log_consulta(
             request_id=request_id, endpoint="enriquecimento",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             enriq_tipo=tipo, enriq_enviados=enviados, enriq_encontrados=0,
             quantidade_retornada=0,
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
+            baixado=False,
             status_http=404,
         )
         return jsonify({
@@ -413,23 +404,12 @@ def enriquecimento():
 
     registrar_log_consulta(
         request_id=request_id, endpoint="enriquecimento",
-        usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+        ip=client_ip,
         enriq_tipo=tipo, enriq_enviados=enviados, enriq_encontrados=encontrados,
         quantidade_retornada=encontrados,
-        tipo_lista=exportacao["tipo_lista"], baixado=True,
+        baixado=True,
         status_http=200,
     )
-    if exportacao["tipo_lista"] == "venda":
-        registrar_venda(
-            request_id=request_id,
-            usuario_id=usuario_id,
-            nome_cliente=exportacao["nome_cliente"],
-            valor_lista=exportacao["valor_lista"],
-            parcelado=exportacao["parcelado"],
-            num_parcelas=exportacao["num_parcelas"],
-            valor_parcela=exportacao["valor_parcela"],
-            registros_exportados=encontrados,
-        )
 
     buf = gerar_excel_bytes(df_resultado)
     nome = f"enriquecimento_{datetime.datetime.now():%Y%m%d_%H%M%S}.xlsx"

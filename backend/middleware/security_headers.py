@@ -94,6 +94,9 @@ def cors_middleware(app: Flask) -> None:
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Vary"] = "Origin"
+            response.headers["Access-Control-Expose-Headers"] = (
+                "Content-Disposition, X-Enviados, X-Encontrados, X-Nao-Encontrados"
+            )
         return response
 
 

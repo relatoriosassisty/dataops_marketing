@@ -6,7 +6,7 @@ Testes de validação de schemas — inputs, limites, injeções.
 
 import pytest
 
-from backend.models.schemas import ValidationError, validar_consulta, validar_contagem, validar_login
+from backend.models.schemas import ValidationError, validar_consulta, validar_contagem
 
 # Payload mínimo válido com cidade explícita
 _BASE = {"ufs": ["SP"], "cidades": ["SAO PAULO"]}
@@ -251,32 +251,6 @@ class TestValidarConsulta:
         assert "SP" in result["ufs"]
 
 
-class TestValidarLogin:
-    """Testes do schema de login."""
-
-    def test_login_api_key_valida(self):
-        result = validar_login({"api_key": "lspf_uma_chave_muito_longa_e_segura_1234"})
-        assert result["api_key"] == "lspf_uma_chave_muito_longa_e_segura_1234"
-
-    def test_login_sem_api_key(self):
-        with pytest.raises(ValidationError):
-            validar_login({})
-
-    def test_login_api_key_vazia(self):
-        with pytest.raises(ValidationError):
-            validar_login({"api_key": ""})
-
-    def test_login_api_key_muito_curta(self):
-        with pytest.raises(ValidationError):
-            validar_login({"api_key": "abc"})
-
-    def test_login_api_key_muito_longa(self):
-        with pytest.raises(ValidationError):
-            validar_login({"api_key": "x" * 300})
-
-    def test_login_api_key_com_espacos_limpa(self):
-        result = validar_login({"api_key": "  lspf_chave_de_teste_bem_longa_12345  "})
-        assert not result["api_key"].startswith(" ")
 
 
 class TestValidarContagem:

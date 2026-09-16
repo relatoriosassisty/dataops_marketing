@@ -6,6 +6,7 @@
 import { useState, useRef } from 'react';
 import Spinner from '../ui/Spinner';
 import { IS_MOCK } from '../../services/mockData';
+import { enriquecerLista } from '../../services/enriquecimentoService';
 
 // ── Parsers ──────────────────────────────────────────────────────
 function parsearCpfs(texto) {
@@ -23,7 +24,7 @@ function parsearTelefones(texto) {
 }
 
 // ── Mock de resultado ─────────────────────────────────────────────
-function mockEnriquecer(itens, tipo) {
+function mockEnriquecer(itens) {
   const fatores = [0.72, 0.88, 0.55, 1.0, 0.63, 0.91, 0.80, 0.47];
   const encontrados = Math.round(itens.length * fatores[itens.length % fatores.length]);
   return {
@@ -78,15 +79,9 @@ export default function EnriquecimentoForm() {
     try {
       if (IS_MOCK) {
         await new Promise((r) => setTimeout(r, 800));
-        setResultado(mockEnriquecer(itens, tipo));
+        setResultado(mockEnriquecer(itens));
       } else {
-        // Endpoint real: POST /api/v1/enriquecimento
-        const { default: api } = await import('../../services/api');
-        const { data } = await api.post('/api/v1/enriquecimento', {
-          tipo,
-          itens,
-        }, { responseType: 'json' });
-        setResultado(data);
+        setResultado(await enriquecerLista(tipo, itens));
       }
     } catch (err) {
       setErro(err.response?.data?.erro || 'Erro ao processar enriquecimento.');
@@ -322,6 +317,9 @@ export default function EnriquecimentoForm() {
             ))}
           </div>
 
+          {resultado.download_iniciado && (
+            <p className="text-success mb-0">Lista enriquecida gerada. O download foi iniciado.</p>
+          )}
           {resultado.arquivo_url ? (
             <a
               href={resultado.arquivo_url}

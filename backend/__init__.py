@@ -1,7 +1,7 @@
 """
-API Segura — Projeto Listas PF
+API local — Projeto Listas PF
 ===============================
-API REST com autenticação JWT, rate limiting, auditoria completa
+API REST local com limites técnicos e registro de operações
 e múltiplas camadas de segurança para consultas ao banco de dados.
 """
 

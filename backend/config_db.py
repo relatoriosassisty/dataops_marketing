@@ -4,7 +4,7 @@ config_db.py
 Credenciais de conexão com o banco de dados MySQL.
 
 Em produção: defina as variáveis de ambiente listadas abaixo.
-Em desenvolvimento: crie api/.env e carregue com python-dotenv,
+Em desenvolvimento: crie backend/.env e carregue com python-dotenv,
   ou exporte as variáveis diretamente no shell.
 
 Variáveis obrigatórias:
@@ -52,7 +52,7 @@ if not _is_test:
         raise ValueError(
             f"ERRO: Variáveis de ambiente obrigatórias não definidas: "
             f"{', '.join(_faltando)}\n"
-            f"Consulte api/.env.example para a lista completa."
+            f"Consulte backend/.env.example para a lista completa."
         )
 
 # ── Configurações para mysql-connector-python ─────────────────

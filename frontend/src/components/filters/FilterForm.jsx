@@ -8,7 +8,6 @@ import LocationFilters from './LocationFilters';
 import PersonFilters from './PersonFilters';
 import PhoneFilters from './PhoneFilters';
 import DistribuicaoQuantidade from './DistribuicaoQuantidade';
-import FinancialFilters from './FinancialFilters';
 
 const FILTROS_PADRAO = {
   // Localização
@@ -34,13 +33,6 @@ const FILTROS_PADRAO = {
   bairrosCidadeMap: {},
   // Proporção de gênero (só ativa quando genero === '')
   generoDistribuicao: { M: 50, F: 50 },
-  // Financeiro
-  tipoLista: 'consulta_disponibilidade',
-  nomeCliente: '',
-  valorLista: 0,
-  parcelado: false,
-  numParcelas: 1,
-  valorParcela: 0,
 };
 
 export default function FilterForm({ onContagem, onGerar, carregando, temToken, onFiltrosChange }) {
@@ -84,10 +76,6 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
   }).length;
 
   const valido = filtros.ufs.length > 0;
-  const vendaValida = filtros.tipoLista !== 'venda' || (
-    (filtros.nomeCliente || '').trim() !== '' && filtros.valorLista > 0
-  );
-
   const buildPayload = () => ({
     ufs: filtros.ufs,
     cidades: filtros.cidades,
@@ -142,15 +130,6 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
       // Só bairros (única cidade ou sem distribuição de cidade)
       return filtros.bairros.map((b) => ({ bairro: b, quantidade: Number(filtros.distribuicaoBairros[b]) || 0 }));
     })(),
-    // Financeiro
-    tipo_lista: filtros.tipoLista,
-    ...(filtros.tipoLista === 'venda' && {
-      nome_cliente: filtros.nomeCliente,
-      valor_lista: filtros.valorLista,
-      parcelado: filtros.parcelado,
-      num_parcelas: filtros.parcelado ? filtros.numParcelas : undefined,
-      valor_parcela: filtros.parcelado && filtros.valorParcela ? filtros.valorParcela : undefined,
-    }),
   });
 
   return (
@@ -270,11 +249,6 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
         );
       })()}
 
-      {/* Filtros Financeiros */}
-      <div className="card-padrao mt-4">
-        <FinancialFilters valores={filtros} onChange={atualizar} />
-      </div>
-
       {/* Aviso UF obrigatória */}
       {!valido && (
         <div
@@ -303,8 +277,8 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
         <button
           type="button"
           className="btn btn-roxo px-4 py-2"
-          disabled={!valido || !temToken || carregando || !vendaValida}
-          title={!temToken ? 'Faça o levantamento primeiro' : !vendaValida ? 'Preencha nome do cliente e valor da lista para gerar venda' : ''}
+          disabled={!valido || !temToken || carregando}
+          title={!temToken ? 'Faça o levantamento primeiro' : ''}
           onClick={() => onGerar(buildPayload())}
         >
           {carregando === 'gerar' ? (

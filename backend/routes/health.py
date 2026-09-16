@@ -5,8 +5,8 @@ Endpoints de saúde e diagnóstico da API.
 
 Rotas:
   GET /api/v1/health         → health check (sem autenticação)
-  GET /api/v1/health/db      → teste de conexão com o banco (autenticado)
-  GET /api/v1/health/stats   → estatísticas da API (admin only)
+  GET /api/v1/health/db      → teste de conexão com o banco (local)
+  GET /api/v1/health/stats   → estatísticas da API (local)
 """
 
 import time
@@ -15,7 +15,6 @@ from datetime import datetime, timezone
 from flask import Blueprint, g, jsonify
 
 from backend import __version__
-from backend.auth.decorators import require_auth, require_role
 
 health_bp = Blueprint("health", __name__, url_prefix="/api/v1/health")
 
@@ -37,12 +36,10 @@ def health_check():
 
 
 @health_bp.route("/db", methods=["GET"])
-@require_auth
-@require_role("admin")
 def db_health():
     """
     Teste de conexão com o banco de dados.
-    Apenas administradores.
+    Disponível nesta edição local.
     """
     try:
         import mysql.connector
@@ -83,11 +80,9 @@ def db_health():
 
 
 @health_bp.route("/stats", methods=["GET"])
-@require_auth
-@require_role("admin")
 def api_stats():
     """
-    Estatísticas gerais da API — apenas administradores.
+    Estatísticas gerais da API da edição local.
     """
     import os
     from backend.config import LOGS_DIR

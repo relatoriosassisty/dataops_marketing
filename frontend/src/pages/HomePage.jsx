@@ -4,25 +4,20 @@
  */
 
 import { useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
 import FilterForm from '../components/filters/FilterForm';
 import ResultPanel from '../components/results/ResultPanel';
 import Toast from '../components/ui/Toast';
 import EnriquecimentoForm from '../components/enriquecimento/EnriquecimentoForm';
 import { consultaService } from '../services/consultaService';
 import { IS_MOCK } from '../services/mockData';
-import TrocarSenhaModal from '../components/auth/TrocarSenhaModal';
 
 export default function HomePage() {
-  const { usuario, logout } = useAuth();
   const [resultadoEstado, setResultadoEstado] = useState('idle'); // idle | carregando | contagem | pronto | erro
   const [resultadoDados, setResultadoDados] = useState(null);
   const [carregando, setCarregando] = useState(null); // null | 'contagem' | 'gerar'
   const [toast, setToast] = useState(null);
-  const [_payloadAtual, setPayloadAtual] = useState(null);
   const [resultadoToken, setResultadoToken] = useState(null);
   const [aba, setAba] = useState('gerador'); // 'gerador' | 'enriquecimento'
-  const [trocarSenhaAberto, setTrocarSenhaAberto] = useState(false);
 
   const mostrarToast = (tipo, mensagem) => {
     setToast({ tipo, mensagem });
@@ -38,7 +33,6 @@ export default function HomePage() {
       const dados = await consultaService.contagem(payload);
       setResultadoEstado('contagem');
       setResultadoDados(dados);
-      setPayloadAtual(payload);
       setResultadoToken(dados.resultado_token ?? null);
     } catch (err) {
       const msg = err.response?.data?.erro || 'Erro ao realizar levantamento.';
@@ -61,19 +55,10 @@ export default function HomePage() {
       const gerarPayload = {
         resultado_token: resultadoToken,
         quantidade: payload.quantidade,
-        tipo_lista: payload.tipo_lista,
-        ...(payload.tipo_lista === 'venda' && {
-          nome_cliente: payload.nome_cliente,
-          valor_lista: payload.valor_lista,
-          parcelado: payload.parcelado,
-          ...(payload.parcelado && { num_parcelas: payload.num_parcelas }),
-          ...(payload.parcelado && payload.valor_parcela && { valor_parcela: payload.valor_parcela }),
-        }),
       };
       const dados = await consultaService.gerarLista(gerarPayload);
       setResultadoEstado('pronto');
       setResultadoDados(dados);
-      setPayloadAtual(payload);
       mostrarToast('sucesso', 'Lista gerada! Download iniciado.');
     } catch (err) {
       const status = err.response?.status;
@@ -94,7 +79,7 @@ export default function HomePage() {
     }
   };
 
-  const handleDownload = (formato) => {
+  const handleDownload = () => {
     if (IS_MOCK) {
       mostrarToast('aviso', 'Download indisponível no modo mock. Conecte a API real para baixar arquivos.');
       return;
@@ -111,7 +96,6 @@ export default function HomePage() {
   const handleLimpar = () => {
     setResultadoEstado('idle');
     setResultadoDados(null);
-    setPayloadAtual(null);
     setResultadoToken(null);
   };
 
@@ -161,41 +145,7 @@ export default function HomePage() {
             </span>
           )}
         </div>
-        <div className="d-flex align-items-center gap-3">
-          <span style={{ color: 'var(--roxo-texto)', fontSize: 'var(--font-size-sm)' }}>
-            <i className="bi bi-person-circle me-1" />
-            {usuario?.nome || usuario?.email}
-          </span>
-          <button
-            onClick={() => setTrocarSenhaAberto(true)}
-            className="btn btn-sm"
-            style={{
-              background: 'rgba(255,255,255,0.08)',
-              color: 'rgba(255,255,255,0.85)',
-              border: '1px solid rgba(255,255,255,0.2)',
-              borderRadius: 'var(--radius-sm)',
-              fontSize: 'var(--font-size-sm)',
-            }}
-            title="Alterar senha"
-          >
-            <i className="bi bi-shield-lock me-1" />
-            Alterar senha
-          </button>
-          <button
-            onClick={logout}
-            className="btn btn-sm"
-            style={{
-              background: 'rgba(255,255,255,0.1)',
-              color: '#fff',
-              border: '1px solid rgba(255,255,255,0.2)',
-              borderRadius: 'var(--radius-sm)',
-              fontSize: 'var(--font-size-sm)',
-            }}
-          >
-            <i className="bi bi-box-arrow-right me-1" />
-            Sair
-          </button>
-        </div>
+        <span style={{ color: "#fff", fontSize: "0.85rem" }}>versão local · uso provisório</span>
       </nav>
 
       {/* Abas */}
@@ -258,10 +208,6 @@ export default function HomePage() {
         <Toast tipo={toast.tipo} mensagem={toast.mensagem} onClose={() => setToast(null)} />
       )}
 
-      {/* Modal trocar senha */}
-      {trocarSenhaAberto && (
-        <TrocarSenhaModal onFechar={() => setTrocarSenhaAberto(false)} />
-      )}
     </div>
   );
 }

@@ -13,25 +13,11 @@ describe('Edge Cases - Limites e Comportamentos Extremos', () => {
       expect(valido).toBe(false);
     });
 
-    it('Nome cliente vazio com tipo=venda deve ser rejeitado', () => {
-      const nomeCliente = '';
-      const tipoLista = 'venda';
-      const valido = tipoLista === 'venda' && nomeCliente.trim().length > 0;
-      expect(valido).toBe(false);
-    });
 
-    it('Valor lista 0 com tipo=venda deve ser rejeitado', () => {
-      const valorLista = 0;
-      const tipoLista = 'venda';
-      const valido = tipoLista === 'venda' && valorLista > 0;
-      expect(valido).toBe(false);
-    });
 
-    it('Nome cliente com apenas espaços deve ser rejeitado', () => {
-      const nomeCliente = '   ';
-      const valido = nomeCliente.trim().length > 0;
-      expect(valido).toBe(false);
-    });
+
+
+
 
     it('DDDs vazio deve ser tratado como "não filtrado"', () => {
       const ddds = [];
@@ -41,22 +27,11 @@ describe('Edge Cases - Limites e Comportamentos Extremos', () => {
   });
 
   describe('Campos com Valores Extremos', () => {
-    it('Nome cliente com 1 caractere deve ser aceito', () => {
-      const nomeCliente = 'A';
-      expect(nomeCliente.length).toBeGreaterThan(0);
-      expect(nomeCliente.length).toBeLessThanOrEqual(150);
-    });
 
-    it('Nome cliente com 150 caracteres deve ser aceito', () => {
-      const nomeCliente = 'A'.repeat(150);
-      expect(nomeCliente.length).toBe(150);
-      expect(nomeCliente.length).toBeLessThanOrEqual(150);
-    });
 
-    it('Nome cliente com 151 caracteres deve ser rejeitado', () => {
-      const nomeCliente = 'A'.repeat(151);
-      expect(nomeCliente.length > 150).toBe(true);
-    });
+
+
+
 
     it('Idade mínima 18 deve ser aceita', () => {
       const idadeMin = 18;
@@ -78,20 +53,11 @@ describe('Edge Cases - Limites e Comportamentos Extremos', () => {
       expect(idadeMax > 120).toBe(true);
     });
 
-    it('Num parcelas 2 deve ser aceito', () => {
-      const numParcelas = 2;
-      expect(numParcelas).toBeGreaterThanOrEqual(2);
-    });
 
-    it('Num parcelas 1 deve ser rejeitado', () => {
-      const numParcelas = 1;
-      expect(numParcelas < 2).toBe(true);
-    });
 
-    it('Num parcelas 120 deve ser aceito', () => {
-      const numParcelas = 120;
-      expect(numParcelas).toBeLessThanOrEqual(120);
-    });
+
+
+
 
     it('Quantidade 1 deve ser aceita', () => {
       const quantidade = 1;
@@ -103,35 +69,17 @@ describe('Edge Cases - Limites e Comportamentos Extremos', () => {
       expect(quantidade < 1).toBe(true);
     });
 
-    it('Valor lista com 2 casas decimais deve ser aceito', () => {
-      const valorLista = 5000.99;
-      expect(Number.isFinite(valorLista)).toBe(true);
-    });
 
-    it('Valor parcela com 2 casas decimais deve ser aceito', () => {
-      const valorParcela = 416.67;
-      expect(Number.isFinite(valorParcela)).toBe(true);
-    });
+
+
   });
 
   describe('Caracteres Especiais e Inválidos', () => {
-    it('Nome cliente com números deve ser aceito', () => {
-      const nomeCliente = 'ACME Corp 123';
-      expect(nomeCliente).toMatch(/[0-9]/);
-      expect(nomeCliente.length).toBeLessThanOrEqual(150);
-    });
 
-    it('Nome cliente com acentos deve ser aceito', () => {
-      const nomeCliente = 'Empresa São Paulo';
-      expect(nomeCliente).toContain('ã');
-      expect(nomeCliente.length).toBeLessThanOrEqual(150);
-    });
 
-    it('Nome cliente com caracteres especiais é variável (backend valida)', () => {
-      const nomeCliente = 'ACME Corp & Co.';
-      // Frontend aceita, backend valida
-      expect(nomeCliente.length).toBeLessThanOrEqual(150);
-    });
+
+
+
 
     it('DDD com caracteres não numéricos deve ser rejeitado', () => {
       const ddd = 'AB';
@@ -167,36 +115,13 @@ describe('Edge Cases - Limites e Comportamentos Extremos', () => {
       expect(valido).toBe(true);
     });
 
-    it('parcelado=true com num_parcelas vazio deve ser inválido', () => {
-      const parcelado = true;
-      const numParcelas = null;
-      const valido = !parcelado || numParcelas >= 2;
-      expect(valido).toBe(false);
-    });
 
-    it('parcelado=false com num_parcelas preenchido deve ser ignorado', () => {
-      const parcelado = false;
-      const numParcelas = 12;
-      // Para payload, ignora numParcelas se parcelado=false
-      const payload = {
-        parcelado,
-        num_parcelas: parcelado ? numParcelas : undefined,
-      };
-      expect(payload.num_parcelas).toBeUndefined();
-    });
 
-    it('tipo_lista=teste não deve incluir dados financeiros', () => {
-      const tipoLista = 'teste';
-      const incluiFinanceiro = tipoLista === 'venda';
-      expect(incluiFinanceiro).toBe(false);
-    });
 
-    it('tipo_lista=venda com nomeCliente vazio deve ser inválido', () => {
-      const tipoLista = 'venda';
-      const nomeCliente = '';
-      const valido = tipoLista !== 'venda' || nomeCliente.trim().length > 0;
-      expect(valido).toBe(false);
-    });
+
+
+
+
 
     it('distribuição com cidade única deve ser ignorada', () => {
       const cidades = ['SAO PAULO'];
@@ -232,12 +157,7 @@ describe('Edge Cases - Limites e Comportamentos Extremos', () => {
       expect(Array.isArray(normalizado)).toBe(true);
     });
 
-    it('valorLista como string com vírgula deve ser tratado', () => {
-      const valorLista = '5000,00';
-      // Backend recebe como float
-      const convertido = parseFloat(valorLista.replace(',', '.'));
-      expect(typeof convertido).toBe('number');
-    });
+
   });
 
   describe('Estados Impossíveis', () => {
@@ -269,11 +189,7 @@ describe('Edge Cases - Limites e Comportamentos Extremos', () => {
   });
 
   describe('Limpeza e Normalização', () => {
-    it('nome cliente com espaços extras deve ser limpo', () => {
-      const nomeCliente = '  ACME Corp  ';
-      const limpo = nomeCliente.trim();
-      expect(limpo).toBe('ACME Corp');
-    });
+
 
     it('UFs em minúsculas devem ser convertidas para maiúsculas', () => {
       const ufs = ['sp', 'rj'];
@@ -301,36 +217,9 @@ describe('Edge Cases - Limites e Comportamentos Extremos', () => {
   });
 
   describe('Valores Padrão Resetados', () => {
-    it('ao trocar de tipo_lista=venda para teste, dados financeiros são zerados', () => {
-      const estadoAntes = {
-        tipoLista: 'venda',
-        nomeCliente: 'ACME',
-        valorLista: 5000,
-      };
 
-      const estadoDepois = {
-        tipoLista: 'teste',
-        nomeCliente: '', // Pode ser zerado ou ignorado
-        valorLista: 0,
-      };
 
-      expect(estadoDepois.tipoLista).toBe('teste');
-      expect(estadoDepois.nomeCliente).not.toBe('ACME');
-    });
 
-    it('ao desmarcar parcelado, número de parcelas volta ao padrão', () => {
-      const estadoAntes = {
-        parcelado: true,
-        numParcelas: 12,
-      };
-
-      const estadoDepois = {
-        parcelado: false,
-        numParcelas: 1, // Volta ao padrão
-      };
-
-      expect(estadoDepois.numParcelas).toBe(1);
-    });
 
     it('ao mudar UFs, distribuição é zerada', () => {
       const estadoAntes = {
@@ -373,12 +262,7 @@ describe('Edge Cases - Limites e Comportamentos Extremos', () => {
       expect(total).toBe(1000);
     });
 
-    it('valor de parcelas vs valor total deve ser consistente', () => {
-      const valorTotal = 5000;
-      const numParcelas = 10;
-      const valorParcelaCalculado = valorTotal / numParcelas;
-      expect(valorParcelaCalculado).toBe(500);
-    });
+
   });
 });
 

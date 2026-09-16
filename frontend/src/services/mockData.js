@@ -6,13 +6,6 @@
 
 export const IS_MOCK = import.meta.env.VITE_MOCK_MODE === 'true';
 
-/* ── Auth ──────────────────────────────────────────────────── */
-export const MOCK_USUARIO = {
-  username: '1',
-  nome: 'Operador Teste',
-  role: 'user',
-};
-
 /* ── Localidades ───────────────────────────────────────────── */
 export const MOCK_CIDADES = {
   SP: ['SAO PAULO', 'CAMPINAS', 'SOROCABA', 'RIBEIRAO PRETO', 'SAO JOSE DOS CAMPOS', 'SANTOS'],
@@ -35,16 +28,6 @@ export const MOCK_BAIRROS = {
 
 /* ── Consulta ──────────────────────────────────────────────── */
 export function mockContagem(filtros) {
-  // Validação de dados financeiros
-  if (filtros.tipo_lista === 'venda') {
-    if (!filtros.nome_cliente || !filtros.valor_lista) {
-      throw new Error('Dados financeiros incompletos: nome_cliente e valor_lista são obrigatórios para venda.');
-    }
-    if (filtros.parcelado && !filtros.num_parcelas) {
-      throw new Error('Número de parcelas obrigatório quando parcelado é true.');
-    }
-  }
-
   const hasDistr = filtros.distribuicao?.length > 0;
 
   if (hasDistr) {
@@ -60,6 +43,7 @@ export function mockContagem(filtros) {
     const total_disponivel = por_item.reduce((acc, it) => acc + it.disponivel, 0);
     const total_solicitado = por_item.reduce((acc, it) => acc + it.solicitado, 0);
     return {
+      resultado_token: `mock-${Date.now()}`,
       total_banco: Math.round(total_disponivel * 1.8),
       total_estimado: total_disponivel,
       total_final: Math.min(total_disponivel, total_solicitado),
@@ -82,6 +66,6 @@ export function mockContagem(filtros) {
   };
 }
 
-export function mockGerarLista(_payload) {
+export function mockGerarLista() {
   return { download_iniciado: true };
 }

@@ -46,53 +46,6 @@ def _post_enriquecimento(
 
 # ── Autenticação / autorização ─────────────────────────────────────────────────
 
-class TestEnriquecimentoAuth:
-    """Segurança: autenticação e RBAC no endpoint de enriquecimento."""
-
-    def test_sem_token_retorna_401(self, client):
-        resp = client.post(
-            "/api/v1/enriquecimento",
-            data={"arquivo": (_txt("09199194996"), "l.txt"), "tipo": "cpf"},
-            content_type="multipart/form-data",
-        )
-        assert resp.status_code == 401
-
-    def test_token_invalido_retorna_401(self, client):
-        resp = client.post(
-            "/api/v1/enriquecimento",
-            data={"arquivo": (_txt("09199194996"), "l.txt"), "tipo": "cpf"},
-            headers={"Authorization": "Bearer token.invalido.xyz"},
-            content_type="multipart/form-data",
-        )
-        assert resp.status_code == 401
-
-    def test_role_readonly_retorna_403(self, client, readonly_headers):
-        resp = _post_enriquecimento(client, readonly_headers, "09199194996")
-        assert resp.status_code == 403
-
-    def test_role_user_permitido(self, client, user_headers):
-        """role 'user' deve ter acesso ao endpoint de enriquecimento."""
-        df_vazio = pd.DataFrame(columns=["CPF", "NOME"])
-        with patch("backend.routes.enriquecimento._carregar_cpfs_sessao"), \
-             patch("backend.routes.enriquecimento._conectar") as mock_conn:
-            mock_conn.return_value.__enter__ = lambda s: s
-            mock_conn.return_value.__exit__ = MagicMock(return_value=False)
-            with patch("pandas.read_sql", return_value=df_vazio), \
-                 patch("backend.routes.enriquecimento.gerar_excel_bytes", return_value=io.BytesIO(b"PK")):
-                resp = _post_enriquecimento(client, user_headers, "09199194996")
-        assert resp.status_code in (200, 400, 404, 500)
-        assert resp.status_code != 403
-
-    def test_role_admin_permitido(self, client, admin_headers):
-        df_vazio = pd.DataFrame(columns=["CPF", "NOME"])
-        with patch("backend.routes.enriquecimento._carregar_cpfs_sessao"), \
-             patch("backend.routes.enriquecimento._conectar") as mock_conn:
-            mock_conn.return_value.__enter__ = lambda s: s
-            mock_conn.return_value.__exit__ = MagicMock(return_value=False)
-            with patch("pandas.read_sql", return_value=df_vazio), \
-                 patch("backend.routes.enriquecimento.gerar_excel_bytes", return_value=io.BytesIO(b"PK")):
-                resp = _post_enriquecimento(client, admin_headers, "09199194996")
-        assert resp.status_code != 403
 
 
 # ── Validação de entrada ───────────────────────────────────────────────────────
@@ -100,17 +53,17 @@ class TestEnriquecimentoAuth:
 class TestEnriquecimentoValidacao:
     """Comportamento esperado para inputs inválidos (todos mocked)."""
 
-    def test_sem_arquivo_retorna_400(self, client, user_headers):
+    def test_sem_arquivo_retorna_400(self, client, local_headers):
         resp = client.post(
             "/api/v1/enriquecimento",
             data={"tipo": "cpf", "tipo_lista": "consulta_disponibilidade"},
-            headers={k: v for k, v in user_headers.items() if k != "Content-Type"},
+            headers={k: v for k, v in local_headers.items() if k != "Content-Type"},
             content_type="multipart/form-data",
         )
         assert resp.status_code == 400
         assert "arquivo" in resp.get_json()["erro"].lower()
 
-    def test_tipo_invalido_retorna_400(self, client, user_headers):
+    def test_tipo_invalido_retorna_400(self, client, local_headers):
         resp = client.post(
             "/api/v1/enriquecimento",
             data={
@@ -118,28 +71,28 @@ class TestEnriquecimentoValidacao:
                 "tipo": "rg",
                 "tipo_lista": "consulta_disponibilidade",
             },
-            headers={k: v for k, v in user_headers.items() if k != "Content-Type"},
+            headers={k: v for k, v in local_headers.items() if k != "Content-Type"},
             content_type="multipart/form-data",
         )
         assert resp.status_code == 400
         data = resp.get_json()
         assert "tipo" in data["erro"].lower()
 
-    def test_arquivo_vazio_retorna_400(self, client, user_headers):
-        resp = _post_enriquecimento(client, user_headers, "")
+    def test_arquivo_vazio_retorna_400(self, client, local_headers):
+        resp = _post_enriquecimento(client, local_headers, "")
         assert resp.status_code == 400
 
-    def test_arquivo_com_cpfs_invalidos_retorna_400(self, client, user_headers):
+    def test_arquivo_com_cpfs_invalidos_retorna_400(self, client, local_headers):
         """Arquivo com linhas que não produzem CPF válido após normalização."""
-        resp = _post_enriquecimento(client, user_headers, "abc\ndef\n12345\n")
+        resp = _post_enriquecimento(client, local_headers, "abc\ndef\n12345\n")
         assert resp.status_code == 400
 
-    def test_content_type_json_retorna_400(self, client, user_headers):
+    def test_content_type_json_retorna_400(self, client, local_headers):
         """Enviar JSON em vez de multipart/form-data deve falhar."""
         resp = client.post(
             "/api/v1/enriquecimento",
             json={"cpfs": ["09199194996"]},
-            headers=user_headers,
+            headers=local_headers,
         )
         assert resp.status_code in (400, 415)
 
@@ -209,14 +162,14 @@ class TestEnriquecimentoParsing:
 class TestEnriquecimentoSeguranca:
     """Testes de borda: arquivos grandes, injeção, abuso."""
 
-    def test_arquivo_acima_do_limite_retorna_400(self, client, user_headers):
+    def test_arquivo_acima_do_limite_retorna_400(self, client, local_headers):
         """1.000.001 CPFs únicos devem ser rejeitados (400 pelo limite de registros ou 413 pelo tamanho)."""
         cpfs_unicos = "\n".join(str(i).zfill(11) for i in range(1_000_001))
-        resp = _post_enriquecimento(client, user_headers, cpfs_unicos)
+        resp = _post_enriquecimento(client, local_headers, cpfs_unicos)
         # 12 MB de CPFs dispara o limite de tamanho (413) antes do limite de registros (400)
         assert resp.status_code in (400, 413)
 
-    def test_arquivo_exatamente_no_limite_aceito(self, client, user_headers):
+    def test_arquivo_exatamente_no_limite_aceito(self, client, local_headers):
         """1.000.000 CPFs (11 dígitos cada) devem passar pela validação de tamanho."""
         cpfs_unicos = "\n".join(str(i).zfill(11) for i in range(1_000_000))
         df_vazio = pd.DataFrame(columns=["CPF"])
@@ -224,10 +177,10 @@ class TestEnriquecimentoSeguranca:
              patch("backend.routes.enriquecimento._conectar"), \
              patch("pandas.read_sql", return_value=df_vazio), \
              patch("backend.routes.enriquecimento.gerar_excel_bytes", return_value=io.BytesIO(b"PK")):
-            resp = _post_enriquecimento(client, user_headers, cpfs_unicos)
+            resp = _post_enriquecimento(client, local_headers, cpfs_unicos)
         assert resp.status_code != 400 or "limite" not in resp.get_data(as_text=True)
 
-    def test_injecao_sql_no_cpf_ignorada(self, client, user_headers):
+    def test_injecao_sql_no_cpf_ignorada(self, client, local_headers):
         """Linha com tentativa de SQL injection deve ser descartada como CPF inválido."""
         conteudo = "' OR '1'='1\n09199194996\n"
         df_vazio = pd.DataFrame(columns=["CPF"])
@@ -235,13 +188,13 @@ class TestEnriquecimentoSeguranca:
              patch("backend.routes.enriquecimento._conectar"), \
              patch("pandas.read_sql", return_value=df_vazio), \
              patch("backend.routes.enriquecimento.gerar_excel_bytes", return_value=io.BytesIO(b"PK")):
-            resp = _post_enriquecimento(client, user_headers, conteudo)
+            resp = _post_enriquecimento(client, local_headers, conteudo)
             if mock_load.called:
                 cpfs_carregados = mock_load.call_args[0][0]
                 assert "' OR '1'='1" not in cpfs_carregados
                 assert all(c.isdigit() and len(c) == 11 for c in cpfs_carregados)
 
-    def test_null_bytes_no_arquivo_ignorados(self, client, user_headers):
+    def test_null_bytes_no_arquivo_ignorados(self, client, local_headers):
         """Arquivo com null bytes nao deve causar erro 500 (null byte removido pelo regex de digitos)."""
         conteudo_bytes = b"09199194996\x00\n000.000.001-91\n"
         df_vazio = pd.DataFrame(columns=["CPF"])
@@ -256,12 +209,12 @@ class TestEnriquecimentoSeguranca:
                     "tipo": "cpf",
                     "tipo_lista": "consulta_disponibilidade",
                 },
-                headers={k: v for k, v in user_headers.items() if k != "Content-Type"},
+                headers={k: v for k, v in local_headers.items() if k != "Content-Type"},
                 content_type="multipart/form-data",
             )
         assert resp.status_code != 500
 
-    def test_cabecalho_x_enviados_presente(self, client, user_headers):
+    def test_cabecalho_x_enviados_presente(self, client, local_headers):
         """Resposta bem-sucedida deve incluir headers de contagem."""
         df_resultado = pd.DataFrame([{
             "NOME": "JOAO", "CPF": "09199194996",
@@ -278,14 +231,14 @@ class TestEnriquecimentoSeguranca:
              patch("backend.routes.enriquecimento._conectar"), \
              patch("pandas.read_sql", return_value=df_resultado), \
              patch("backend.routes.enriquecimento.gerar_excel_bytes", return_value=io.BytesIO(b"PK")):
-            resp = _post_enriquecimento(client, user_headers, "09199194996")
+            resp = _post_enriquecimento(client, local_headers, "09199194996")
 
         if resp.status_code == 200:
             assert "X-Enviados" in resp.headers
             assert "X-Encontrados" in resp.headers
             assert "X-Nao-Encontrados" in resp.headers
 
-    def test_tipo_telefone_normaliza_ddi(self, client, user_headers):
+    def test_tipo_telefone_normaliza_ddi(self, client, local_headers):
         """Telefone com DDI +55 deve ser aceito e normalizado."""
         df_vazio = pd.DataFrame(columns=["CPF"])
         conteudo = "+55 41 9178-6575\n73 8157-6452\n"
@@ -293,7 +246,7 @@ class TestEnriquecimentoSeguranca:
              patch("backend.routes.enriquecimento._conectar"), \
              patch("pandas.read_sql", return_value=df_vazio), \
              patch("backend.routes.enriquecimento.gerar_excel_bytes", return_value=io.BytesIO(b"PK")):
-            _post_enriquecimento(client, user_headers, conteudo, tipo="telefone")
+            _post_enriquecimento(client, local_headers, conteudo, tipo="telefone")
             if mock_load.called:
                 tels = mock_load.call_args[0][0]
                 assert all(t.isdigit() for t in tels)

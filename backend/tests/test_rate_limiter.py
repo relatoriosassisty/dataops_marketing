@@ -86,30 +86,30 @@ class TestRateLimiter:
         from backend.middleware.rate_limiter import RateLimiter
 
         limiter = RateLimiter()
-        result = limiter.check("test_user", role="admin")
+        result = limiter.check("test_user")
         assert result["allowed"] is True
         assert result["remaining"] >= 0
 
-    def test_check_por_role_user(self):
+    def test_check_por_ip(self):
         from backend.middleware.rate_limiter import RateLimiter
 
         limiter = RateLimiter()
         # User: 30 req/min
         for i in range(30):
-            result = limiter.check(f"unique_user_{i}_rate", role="user")
+            result = limiter.check(f"unique_user_{i}_rate")
             # Cada unique user tem seu próprio counter
 
         # Mesmo user excede
         for i in range(30):
-            limiter.check("single_user", role="user")
-        result = limiter.check("single_user", role="user")
+            limiter.check("single_user")
+        result = limiter.check("single_user")
         assert result["allowed"] is False
 
     def test_check_retorna_campos_esperados(self):
         from backend.middleware.rate_limiter import RateLimiter
 
         limiter = RateLimiter()
-        result = limiter.check("test", role="user")
+        result = limiter.check("test")
 
         assert "allowed" in result
         assert "limit" in result
@@ -121,14 +121,14 @@ class TestRateLimiter:
 class TestRateLimitMiddleware:
     """Testes do middleware de rate limiting integrado ao Flask."""
 
-    def test_headers_presentes_na_resposta(self, client, admin_headers, monkeypatch):
-        monkeypatch.setattr("backend.config.RATE_LIMIT_ENABLED", True)
+    def test_headers_presentes_na_resposta(self, client, local_headers, monkeypatch):
+        monkeypatch.setattr("backend.middleware.rate_limiter.RATE_LIMIT_ENABLED", True)
         resp = client.get("/api/v1/health")
         # Health check não requer auth, mas rate limit headers devem estar presentes
         assert resp.status_code == 200
 
     def test_rate_limit_desabilitado_nao_bloqueia(self, client, monkeypatch):
-        monkeypatch.setattr("backend.config.RATE_LIMIT_ENABLED", False)
+        monkeypatch.setattr("backend.middleware.rate_limiter.RATE_LIMIT_ENABLED", False)
         for _ in range(50):
             resp = client.get("/api/v1/health")
             assert resp.status_code == 200

@@ -65,78 +65,78 @@ class TestSecurityHeaders:
 class TestRequestValidator:
     """Testes de validação de requisições — detecção de ataques."""
 
-    def test_sql_injection_bloqueado(self, client, admin_headers):
+    def test_sql_injection_bloqueado(self, client, local_headers):
         payload = {"ufs": ["SP"], "cidades": ["'; DROP TABLE users; --"]}
         resp = client.post(
             "/api/v1/consulta/contagem",
-            headers=admin_headers,
+            headers=local_headers,
             json=payload,
         )
         # Deve ser bloqueado pelo middleware ou schema
         assert resp.status_code in (400, 415)
 
-    def test_xss_bloqueado(self, client, admin_headers):
+    def test_xss_bloqueado(self, client, local_headers):
         payload = {"ufs": ["SP"], "cidades": ["<script>alert(1)</script>"]}
         resp = client.post(
             "/api/v1/consulta/contagem",
-            headers=admin_headers,
+            headers=local_headers,
             json=payload,
         )
         assert resp.status_code == 400
 
-    def test_command_injection_bloqueado(self, client, admin_headers):
+    def test_command_injection_bloqueado(self, client, local_headers):
         payload = {"ufs": ["SP"], "cidades": ["SAO PAULO && rm -rf /"]}
         resp = client.post(
             "/api/v1/consulta/contagem",
-            headers=admin_headers,
+            headers=local_headers,
             json=payload,
         )
         assert resp.status_code == 400
 
-    def test_path_traversal_bloqueado(self, client, admin_headers):
+    def test_path_traversal_bloqueado(self, client, local_headers):
         payload = {"ufs": ["SP"], "cidades": ["../../etc/passwd"]}
         resp = client.post(
             "/api/v1/consulta/contagem",
-            headers=admin_headers,
+            headers=local_headers,
             json=payload,
         )
         assert resp.status_code == 400
 
-    def test_content_type_obrigatorio_post(self, client, admin_token):
+    def test_content_type_obrigatorio_post(self, client):
         resp = client.post(
             "/api/v1/consulta/contagem",
-            headers={"Authorization": f"Bearer {admin_token}"},
+
             data="nao e json",
         )
         assert resp.status_code == 415
 
-    def test_ufs_validas_nao_sao_bloqueadas(self, client, admin_headers):
+    def test_ufs_validas_nao_sao_bloqueadas(self, client, local_headers):
         """UFs legítimas (SP, RJ, etc.) não devem trigger falso positivo."""
         payload = {"ufs": ["SP"]}
         resp = client.post(
             "/api/v1/consulta/contagem",
-            headers=admin_headers,
+            headers=local_headers,
             json=payload,
         )
         # Pode falhar por conexão ao banco, mas NÃO deve ser 400 por "malicioso"
         assert resp.status_code != 415
 
-    def test_genero_valido_nao_bloqueado(self, client, admin_headers):
+    def test_genero_valido_nao_bloqueado(self, client, local_headers):
         """Gênero M/F não deve trigger falso positivo."""
         payload = {"ufs": ["SP"], "genero": "M"}
         resp = client.post(
             "/api/v1/consulta/contagem",
-            headers=admin_headers,
+            headers=local_headers,
             json=payload,
         )
         assert resp.status_code != 415
 
-    def test_numeros_puros_nao_bloqueados(self, client, admin_headers):
+    def test_numeros_puros_nao_bloqueados(self, client, local_headers):
         """Números (idade, quantidade) não devem ser bloqueados."""
         payload = {"ufs": ["SP"], "idade_min": 25, "idade_max": 60}
         resp = client.post(
             "/api/v1/consulta/contagem",
-            headers=admin_headers,
+            headers=local_headers,
             json=payload,
         )
         assert resp.status_code != 415
@@ -148,18 +148,18 @@ class TestCORS:
     def test_preflight_options(self, client):
         resp = client.options(
             "/api/v1/health",
-            headers={"Origin": "http://localhost:5000"},
+            headers={"Origin": "http://localhost:5173"},
         )
         assert resp.status_code == 204
         assert "Access-Control-Allow-Origin" in resp.headers
 
     def test_origin_permitido(self, client, monkeypatch):
-        monkeypatch.setattr("backend.middleware.security_headers.CORS_ORIGINS", ["http://localhost:5000"])
+        monkeypatch.setattr("backend.middleware.security_headers.CORS_ORIGINS", ["http://localhost:5173"])
         resp = client.get(
             "/api/v1/health",
-            headers={"Origin": "http://localhost:5000"},
+            headers={"Origin": "http://localhost:5173"},
         )
-        assert resp.headers.get("Access-Control-Allow-Origin") == "http://localhost:5000"
+        assert resp.headers.get("Access-Control-Allow-Origin") == "http://localhost:5173"
 
     def test_origin_nao_permitido(self, client, monkeypatch):
         monkeypatch.setattr("backend.middleware.security_headers.CORS_ORIGINS", ["http://allowed.com"])

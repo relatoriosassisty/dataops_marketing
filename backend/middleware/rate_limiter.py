@@ -1,23 +1,3 @@
-"""
-api/middleware/rate_limiter.py
------------------------------
-Rate limiting com janela deslizante (sliding window).
-
-Estratégias implementadas:
-  - Por IP: limita requisições por endereço IP
-  - Por API Key: limita por chave de autenticação
-  - Por Role: limites diferenciados por nível de acesso
-  - Global: limite absoluto para proteção do servidor
-
-Armazenamento em memória (em produção: usar Redis com MULTI/EXEC).
-
-Headers retornados:
-  X-RateLimit-Limit      : limite total da janela
-  X-RateLimit-Remaining  : requisições restantes
-  X-RateLimit-Reset      : timestamp Unix de reset da janela
-  Retry-After            : segundos até poder tentar novamente (quando bloqueado)
-"""
-
 import time
 import threading
 from collections import defaultdict
@@ -26,7 +6,6 @@ from typing import Optional
 from flask import Flask, g, jsonify, request
 
 from backend.config import (
-    RATE_LIMIT_BY_ROLE,
     RATE_LIMIT_DEFAULT,
     RATE_LIMIT_ENABLED,
 )
@@ -109,133 +88,46 @@ class SlidingWindowCounter:
 
 
 class RateLimiter:
-    """
-    Rate Limiter principal com múltiplas janelas (minuto, hora, dia).
-    """
+    """Limites técnicos iguais para todas as requisições, identificadas por IP."""
 
     def __init__(self):
-        self._limiters: dict[str, dict[str, SlidingWindowCounter]] = {}
-        self._cleanup_interval = 300  # limpar a cada 5 min
-        self._last_cleanup = time.time()
-
-    def _get_or_create_limiter(
-        self, role: str
-    ) -> dict[str, SlidingWindowCounter]:
-        """Obtém ou cria limiters para um role específico."""
-        if role not in self._limiters:
-            limits = RATE_LIMIT_BY_ROLE.get(role, RATE_LIMIT_DEFAULT)
-            self._limiters[role] = {
-                "minute": SlidingWindowCounter(60, limits["requests_per_minute"]),
-                "hour": SlidingWindowCounter(3600, limits["requests_per_hour"]),
-                "day": SlidingWindowCounter(86400, limits["requests_per_day"]),
-            }
-        return self._limiters[role]
-
-    def _maybe_cleanup(self) -> None:
-        now = time.time()
-        if now - self._last_cleanup > self._cleanup_interval:
-            for role_limiters in self._limiters.values():
-                for limiter in role_limiters.values():
-                    limiter.cleanup_all()
-            self._last_cleanup = now
-
-    def check(self, identifier: str, role: str = "user") -> dict:
-        """
-        Verifica rate limit para o identificador com o role dado.
-
-        Retorna dict com:
-          - allowed: bool
-          - limit: int (mais restritivo)
-          - remaining: int
-          - retry_after: float (segundos, 0 se permitido)
-          - window: str (qual janela bloqueou)
-        """
-        self._maybe_cleanup()
-        limiters = self._get_or_create_limiter(role)
-
-        # Verificar cada janela (da mais restritiva para a menos)
-        for window_name in ("minute", "hour", "day"):
-            limiter = limiters[window_name]
-            allowed, total, limit, retry_after = limiter.hit(identifier)
-
-            if not allowed:
-                return {
-                    "allowed": False,
-                    "limit": limit,
-                    "remaining": 0,
-                    "retry_after": retry_after,
-                    "window": window_name,
-                    "total": total,
-                }
-
-        # Todas as janelas OK — retornar info da janela por minuto
-        minute_remaining = limiters["minute"].get_remaining(identifier)
-        limits = RATE_LIMIT_BY_ROLE.get(role, RATE_LIMIT_DEFAULT)
-
-        return {
-            "allowed": True,
-            "limit": limits["requests_per_minute"],
-            "remaining": minute_remaining,
-            "retry_after": 0,
-            "window": "minute",
+        self._limiters = {
+            "minute": SlidingWindowCounter(60, RATE_LIMIT_DEFAULT["requests_per_minute"]),
+            "hour": SlidingWindowCounter(3600, RATE_LIMIT_DEFAULT["requests_per_hour"]),
+            "day": SlidingWindowCounter(86400, RATE_LIMIT_DEFAULT["requests_per_day"]),
         }
 
-
-# ── Instância global ──────────────────────────────────────────
-_rate_limiter = RateLimiter()
+    def check(self, identifier: str) -> dict:
+        for window, limiter in self._limiters.items():
+            allowed, total, limit, retry_after = limiter.hit(identifier)
+            if not allowed:
+                return {"allowed": False, "limit": limit, "remaining": 0,
+                        "retry_after": retry_after, "window": window, "total": total}
+        return {"allowed": True, "limit": RATE_LIMIT_DEFAULT["requests_per_minute"],
+                "remaining": self._limiters["minute"].get_remaining(identifier),
+                "retry_after": 0, "window": "minute"}
 
 
 def rate_limit_middleware(app: Flask) -> None:
-    """
-    Registra o middleware de rate limiting no Flask app.
-    Executa antes de cada request.
-    """
+    limiter = RateLimiter()
 
     @app.before_request
-    def _check_rate_limit():
-        if not RATE_LIMIT_ENABLED:
+    def check_rate_limit():
+        if not RATE_LIMIT_ENABLED or request.method == "OPTIONS":
             return None
-
-        # Identificador: API Key > IP
-        auth = getattr(g, "auth_user", None)
-        if auth:
-            identifier = auth.get("subject", request.remote_addr)
-            role = auth.get("role", "user")
-        else:
-            identifier = request.remote_addr or "unknown"
-            role = "user"
-
-        result = _rate_limiter.check(identifier, role)
-
-        # Sempre adicionar headers de rate limit
+        result = limiter.check(request.remote_addr or "unknown")
         g.rate_limit_info = result
-
         if not result["allowed"]:
-            from backend.utils.audit_logger import log_security_event
-            log_security_event(
-                "RATE_LIMIT_EXCEEDED",
-                identifier=identifier,
-                role=role,
-                window=result["window"],
-                limit=result["limit"],
-            )
-
-            response = jsonify({
-                "erro": "Limite de requisições excedido.",
-                "limite": result["limit"],
-                "janela": result["window"],
-                "tente_apos_segundos": int(result["retry_after"]) + 1,
-            })
+            response = jsonify({"erro": "Limite técnico de requisições excedido.",
+                                "tente_apos_segundos": int(result["retry_after"]) + 1})
             response.status_code = 429
             response.headers["Retry-After"] = str(int(result["retry_after"]) + 1)
-            response.headers["X-RateLimit-Limit"] = str(result["limit"])
-            response.headers["X-RateLimit-Remaining"] = "0"
             return response
 
     @app.after_request
-    def _add_rate_limit_headers(response):
+    def add_rate_limit_headers(response):
         info = getattr(g, "rate_limit_info", None)
         if info:
-            response.headers["X-RateLimit-Limit"] = str(info.get("limit", ""))
-            response.headers["X-RateLimit-Remaining"] = str(info.get("remaining", ""))
+            response.headers["X-RateLimit-Limit"] = str(info["limit"])
+            response.headers["X-RateLimit-Remaining"] = str(info["remaining"])
         return response

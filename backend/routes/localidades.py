@@ -14,7 +14,6 @@ from pathlib import Path
 
 from flask import Blueprint, g, jsonify, request
 
-from backend.auth.decorators import require_auth
 
 _UTILS = Path(__file__).parent.parent / "utils"
 
@@ -44,7 +43,6 @@ localidades_bp = Blueprint("localidades", __name__, url_prefix="/api/v1/localida
 
 
 @localidades_bp.route("/ufs", methods=["GET"])
-@require_auth
 def ufs():
     """
     Retorna lista de UFs disponíveis (derivada do IBGE).
@@ -56,7 +54,6 @@ def ufs():
 
 
 @localidades_bp.route("/cidades", methods=["GET"])
-@require_auth
 def cidades():
     """
     Retorna municípios oficiais (IBGE) para um estado.
@@ -76,7 +73,6 @@ def cidades():
 
 
 @localidades_bp.route("/bairros", methods=["GET"])
-@require_auth
 def bairros():
     """
     Retorna bairros disponíveis para uma cidade (dados estáticos).
@@ -101,7 +97,6 @@ def bairros():
 
 
 @localidades_bp.route("/alta-renda", methods=["GET"])
-@require_auth
 def alta_renda():
     """
     Retorna os bairros de alta renda mapeados para uma cidade.
@@ -132,15 +127,11 @@ def alta_renda():
 
 
 @localidades_bp.route("/cache/limpar", methods=["POST"])
-@require_auth
 def limpar_cache():
     """
     Recarrega os arquivos de bairros da memória.
-    Requer role admin. Útil após regenerar os JSONs estáticos.
+    Útil após regenerar os JSONs estáticos.
     """
-    auth = g.auth_user
-    if auth.get("role") != "admin":
-        return jsonify({"erro": "Apenas administradores podem limpar o cache."}), 403
 
     uf = (request.args.get("uf") or "").strip().upper()
 

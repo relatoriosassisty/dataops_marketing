@@ -18,7 +18,7 @@ from backend.utils.json_logger import configurar_logging
 configurar_logging()
 
 
-def create_app() -> Flask:
+def create_app(test_config=None) -> Flask:
     """
     Cria e configura a aplicação Flask da API.
     
@@ -34,6 +34,8 @@ def create_app() -> Flask:
       9. Request/Response logging
     """
     app = Flask(__name__)
+    if test_config:
+        app.config.update(test_config)
 
     # ── Configurações Flask ──────────────────────────────────
     app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
@@ -65,17 +67,13 @@ def create_app() -> Flask:
     cors_middleware(app)
 
     # ── 5. Blueprints ────────────────────────────────────────
-    from backend.routes.auth_routes import auth_bp
     from backend.routes.consulta import consulta_bp
     from backend.routes.health import health_bp
-    from backend.routes.admin import admin_bp
     from backend.routes.enriquecimento import enriquecimento_bp
     from backend.routes.localidades import localidades_bp
 
-    app.register_blueprint(auth_bp)
     app.register_blueprint(consulta_bp)
     app.register_blueprint(health_bp)
-    app.register_blueprint(admin_bp)
     app.register_blueprint(enriquecimento_bp)
     app.register_blueprint(localidades_bp)
 
@@ -114,7 +112,6 @@ def create_app() -> Flask:
         """Loga toda requisição para auditoria."""
         from backend.utils.audit_logger import log_request
 
-        auth = getattr(g, "auth_user", None)
         request_id = getattr(g, "request_id", "")
         start = getattr(g, "request_start_time", None)
         elapsed_ms = round((time.time() - start) * 1000, 1) if start else None
@@ -124,9 +121,6 @@ def create_app() -> Flask:
             path=request.path,
             status_code=response.status_code,
             ip=request.remote_addr or "unknown",
-            user=auth.get("subject") if auth else None,
-            role=auth.get("role") if auth else None,
-            auth_method=auth.get("auth_method") if auth else None,
             response_time_ms=elapsed_ms,
             request_id=request_id,
         )
@@ -173,11 +167,10 @@ def create_app() -> Flask:
     @app.route("/")
     def index():
         return jsonify({
-            "api": "Lista PF - API Segura",
+            "api": "Lista PF - API Local",
             "versao": "1.0.0",
             "documentacao": "/api/v1/health",
             "endpoints": {
-                "auth": "/api/v1/auth/login",
                 "consulta": "/api/v1/consulta",
                 "contagem": "/api/v1/consulta/contagem",
                 "preview": "/api/v1/consulta/preview",
@@ -185,5 +178,5 @@ def create_app() -> Flask:
             },
         }), 200
 
-    app.logger.info("API Segura inicializada com sucesso.")
+    app.logger.info("API Local inicializada com sucesso.")
     return app

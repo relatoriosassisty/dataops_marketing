@@ -6,11 +6,7 @@
 flask>=3.0
 python-dotenv>=1.0
 
-# ── JWT Tokens ─────────────────────────────────────────────────
-PyJWT>=2.8
 
-# ── Hash de senha (api/utils/crypto.py) ────────────────────────
-argon2-cffi>=23.1
 
 # ── Banco de dados ─────────────────────────────────────────────
 mysql-connector-python>=8.0
@@ -27,7 +23,3 @@ redis>=5.0
 # ── Testes ─────────────────────────────────────────────────────
 pytest>=8.0
 pytest-timeout>=2.3
-
-# ── Produção ──────────────────────────────────────────────────
-gunicorn>=21.2        # WSGI server para Linux/Docker
-waitress>=2.1         # WSGI server para Windows

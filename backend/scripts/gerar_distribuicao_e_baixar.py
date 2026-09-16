@@ -1,4 +1,3 @@
-import subprocess
 import json
 import urllib.request
 import urllib.error
@@ -7,25 +6,12 @@ from math import floor
 
 BASE_URL = "http://127.0.0.1:5001"
 
-def run_create_key():
-    env = os.environ.copy()
-    # ensure envs are present (development)
-    env.setdefault('DB_HOST','localhost')
-    env.setdefault('DB_USER','root')
-    env.setdefault('DB_PASSWORD','devpass')
-    proc = subprocess.run(["python", "-m", "backend.run", "--create-key"], capture_output=True, text=True, env=env)
-    out = proc.stdout + proc.stderr
-    # find line starting with '  API Key:'
-    for line in out.splitlines():
-        if line.strip().startswith("API Key:"):
-            return line.split(':',1)[1].strip()
-    raise RuntimeError("API Key not found in output")
 
-def post_json(path, data, api_key):
+def post_json(path, data):
     url = BASE_URL + path
     b = json.dumps(data, ensure_ascii=False).encode('utf-8')
     req = urllib.request.Request(url, data=b, headers={
-        'Content-Type':'application/json', 'X-API-Key': api_key
+        'Content-Type':'application/json'
     }, method='POST')
     with urllib.request.urlopen(req, timeout=120) as resp:
         ct = resp.headers.get_content_type()
@@ -35,8 +21,6 @@ def post_json(path, data, api_key):
         return body
 
 def main():
-    api_key = run_create_key()
-    print('Using API key:', api_key)
 
     bairros_map = {
         'MOGI DAS CRUZES': ['VILA OLIVEIRA','NOVA MOGILAR','ALTO DO IPIRANGA','PARQUE MONTE LIBANO','CENTRO','CEZAR DE SOUZA','BRAS CUBAS','JUNDIAPEBA','VILA MOGI MODERNO'],
@@ -51,7 +35,7 @@ def main():
             payload = {'ufs':['SP'], 'cidades':[cidade], 'bairros':[bairro], 'quantidade': 999999}
             print('Requesting contagem for', cidade, '/', bairro)
             try:
-                resp = post_json('/api/v1/consulta/contagem', payload, api_key)
+                resp = post_json('/api/v1/consulta/contagem', payload)
                 count = int(resp.get('total_disponivel', 0))
             except Exception as e:
                 print('Error for', bairro, e)
@@ -113,10 +97,10 @@ def main():
         if a['quantidade'] > 0:
             dist.append({'cidade': a['cidade'], 'bairros': a['bairros'], 'quantidade': a['quantidade']})
 
-    payload = {'ufs':['SP'], 'distribuicao': dist, 'quantidade': target, 'tipo_lista':'teste'}
+    payload = {'ufs':['SP'], 'distribuicao': dist, 'quantidade': target}
     print('Requesting download with payload, items:', len(dist))
     try:
-        data = post_json('/api/v1/consulta/download', payload, api_key)
+        data = post_json('/api/v1/consulta/download', payload)
         # if returned bytes, save
         if isinstance(data, bytes):
             xlsx_path = os.path.join(out_dir, 'lista_gerada.xlsx')

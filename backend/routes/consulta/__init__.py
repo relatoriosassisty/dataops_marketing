@@ -12,7 +12,7 @@ Rotas:
   POST /api/v1/consulta/iniciar      → inicia job assíncrono, retorna job_id
   GET  /api/v1/consulta/job/<job_id> → status/resultado do job assíncrono
 
-Todas as rotas requerem autenticação e são auditadas.
+Rotas locais sem autenticação, com registro técnico das operações.
 """
 
 import datetime
@@ -28,7 +28,7 @@ from pathlib import Path
 
 from flask import Blueprint, g, jsonify, request, send_file
 
-from backend.auth.decorators import _get_client_ip, require_auth, require_role
+from backend.middleware.ip_filter import _get_real_ip as _get_client_ip
 from backend.config import (
     BATCH_MAX_ITERACOES,
     BATCH_SIZE_DB,
@@ -41,8 +41,7 @@ from backend.config_db import DB_CONFIG
 from backend.middleware.timeout_middleware import with_timeout
 from backend.utils.alta_renda import buscar_bairros as _buscar_bairros_ar
 from backend.utils.audit_logger import log_data_access, log_security_event
-from backend.utils.db_logger import extrair_campos_auth, registrar_log_consulta, registrar_venda
-from backend.utils.user_limits import verificar_e_ajustar_quantidade
+from backend.utils.db_logger import registrar_log_consulta
 from backend.utils.data_cleaner import limpar_dataframe, relatorio_html
 from backend.utils.data_processor import colunas_saida, processar
 from backend.utils.data_quality import metricas_qualidade
@@ -59,7 +58,6 @@ from .schema import (
     ValidationError,
     validar_consulta,
     validar_contagem,
-    validar_exportacao,
 )
 
 import mysql.connector
@@ -457,14 +455,10 @@ def _pipeline_consulta(filtros: dict) -> dict:
 
 
 @consulta_bp.route("", methods=["POST"])
-@require_auth
-@require_role("admin", "user")
 @with_timeout
 def consultar():
     client_ip = _get_client_ip()
-    auth = g.auth_user
     request_id = getattr(g, "request_id", "")
-    key_id, nome_usuario, usuario_id = extrair_campos_auth(auth)
 
     try:
         data = request.get_json(silent=True) or {}
@@ -472,7 +466,7 @@ def consultar():
     except ValidationError as e:
         registrar_log_consulta(
             request_id=request_id, endpoint="consulta",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             status_http=400, erro="Dados inválidos.",
         )
         return jsonify({"ok": False, "erro": "Dados inválidos.", "detalhes": e.erros, "request_id": request_id}), 400
@@ -482,31 +476,22 @@ def consultar():
     max_allowed = MAX_REGISTROS_POR_CONSULTA
     filtros["quantidade"] = min(filtros["quantidade"], max_allowed)
 
-    filtros["quantidade"], limite_erro = verificar_e_ajustar_quantidade(nome_usuario, auth.get("role"), filtros["quantidade"])
-    if limite_erro:
-        registrar_log_consulta(
-            request_id=request_id, endpoint="consulta",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
-            filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
-            status_http=429, erro=limite_erro,
-        )
-        return jsonify({"ok": False, "erro": limite_erro, "request_id": request_id}), 429
 
     try:
         resultado = _pipeline_consulta(filtros)
     except ValueError as ve:
         registrar_log_consulta(
             request_id=request_id, endpoint="consulta",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
             status_http=400, erro=str(ve),
         )
         return jsonify({"ok": False, "erro": str(ve), "request_id": request_id}), 400
     except Exception as e:
-        log_security_event("QUERY_ERROR", severity="ERROR", subject=auth.get("subject"), error=str(e), ip=client_ip)
+        log_security_event("QUERY_ERROR", severity="ERROR", subject=None, error=str(e), ip=client_ip)
         registrar_log_consulta(
             request_id=request_id, endpoint="consulta",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
             status_http=500, erro=str(e),
         )
@@ -517,19 +502,19 @@ def consultar():
         "consulta concluída",
         extra={
             "request_id": request_id,
-            "user":       auth.get("subject"),
+            "user":       None,
             "action":     "CONSULTA",
             "registros":  resultado["total_final"],
             "latencia_ms": round(resultado["duracao_s"] * 1000),
             "cache_hit":  resultado.get("cache_hit", False),
         },
     )
-    log_data_access(user=auth.get("subject", "unknown"), role=auth.get("role", "unknown"),
+    log_data_access(user=None, role=None,
                     action="CONSULTA", filtros=filtros, registros_retornados=resultado["total_final"],
                     ip=client_ip, request_id=request_id)
     registrar_log_consulta(
         request_id=request_id, endpoint="consulta",
-        usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+        ip=client_ip,
         filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
         quantidade_retornada=resultado["total_final"],
         esgotou_base=resultado["alguma_esgotou"],
@@ -554,14 +539,10 @@ def consultar():
 
 
 @consulta_bp.route("/contagem", methods=["POST"])
-@require_auth
-@require_role("admin", "user")
 @with_timeout
 def contagem():
     client_ip = _get_client_ip()
-    auth = g.auth_user
     request_id = getattr(g, "request_id", "")
-    key_id, nome_usuario, usuario_id = extrair_campos_auth(auth)
 
     try:
         data = request.get_json(silent=True) or {}
@@ -569,7 +550,7 @@ def contagem():
     except ValidationError as e:
         registrar_log_consulta(
             request_id=request_id, endpoint="contagem",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             status_http=400, erro="Dados inválidos.",
         )
         return jsonify({"ok": False, "erro": "Dados inválidos.", "detalhes": e.erros, "request_id": request_id}), 400
@@ -579,31 +560,22 @@ def contagem():
     max_allowed = MAX_REGISTROS_POR_CONSULTA
     filtros["quantidade"] = min(filtros["quantidade"], max_allowed)
 
-    filtros["quantidade"], limite_erro = verificar_e_ajustar_quantidade(nome_usuario, auth.get("role"), filtros["quantidade"])
-    if limite_erro:
-        registrar_log_consulta(
-            request_id=request_id, endpoint="contagem",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
-            filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
-            status_http=429, erro=limite_erro,
-        )
-        return jsonify({"ok": False, "erro": limite_erro, "request_id": request_id}), 429
 
     try:
         resultado = _pipeline_consulta(filtros)
     except ValueError as ve:
         registrar_log_consulta(
             request_id=request_id, endpoint="contagem",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
             status_http=400, erro=str(ve),
         )
         return jsonify({"ok": False, "erro": str(ve), "request_id": request_id}), 400
     except Exception as e:
-        log_security_event("LEVANTAMENTO_ERROR", severity="ERROR", subject=auth.get("subject"), error=str(e), ip=client_ip)
+        log_security_event("LEVANTAMENTO_ERROR", severity="ERROR", subject=None, error=str(e), ip=client_ip)
         registrar_log_consulta(
             request_id=request_id, endpoint="contagem",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
             status_http=500, erro=str(e),
         )
@@ -628,12 +600,12 @@ def contagem():
     except Exception:
         return jsonify({"ok": False, "erro": "Erro ao salvar resultado do levantamento.", "request_id": request_id}), 500
 
-    log_data_access(user=auth.get("subject", "unknown"), role=auth.get("role", "unknown"),
+    log_data_access(user=None, role=None,
                     action="LEVANTAMENTO", filtros=filtros, registros_retornados=total_disponivel,
                     ip=client_ip, request_id=request_id)
     registrar_log_consulta(
         request_id=request_id, endpoint="contagem",
-        usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+        ip=client_ip,
         filtros_json=filtros, quantidade_solicitada=quantidade_pedida,
         quantidade_retornada=total_disponivel,
         esgotou_base=resultado["alguma_esgotou"],
@@ -655,14 +627,10 @@ def contagem():
 
 
 @consulta_bp.route("/gerar", methods=["POST"])
-@require_auth
-@require_role("admin", "user")
 @with_timeout
 def gerar():
     client_ip = _get_client_ip()
-    auth = g.auth_user
     request_id = getattr(g, "request_id", "")
-    key_id, nome_usuario, usuario_id = extrair_campos_auth(auth)
 
     data = request.get_json(silent=True) or {}
     token = str(data.get("resultado_token", "")).strip().lower()
@@ -670,17 +638,13 @@ def gerar():
     if not _UUID4_RE.match(token):
         return jsonify({"ok": False, "erro": "Token inválido.", "request_id": request_id}), 400
 
-    try:
-        exportacao = validar_exportacao(data)
-    except ValidationError as e:
-        return jsonify({"ok": False, "erro": "Dados de exportação inválidos.", "detalhes": e.erros, "request_id": request_id}), 400
 
     caminho_parquet = _DIR_TEMP / f"{token}.parquet"
     if not caminho_parquet.exists():
         registrar_log_consulta(
             request_id=request_id, endpoint="gerar",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
+            ip=client_ip,
+            baixado=False,
             status_http=410, erro="Token não encontrado.",
         )
         return jsonify({"ok": False, "erro": "Token não encontrado. Refaça o levantamento.", "request_id": request_id}), 410
@@ -693,8 +657,8 @@ def gerar():
             pass
         registrar_log_consulta(
             request_id=request_id, endpoint="gerar",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
+            ip=client_ip,
+            baixado=False,
             status_http=410, erro="Token expirado.",
         )
         return jsonify({"ok": False, "erro": "Token expirado. Refaça o levantamento.", "request_id": request_id}), 410
@@ -704,8 +668,8 @@ def gerar():
     except Exception:
         registrar_log_consulta(
             request_id=request_id, endpoint="gerar",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
+            ip=client_ip,
+            baixado=False,
             status_http=500, erro="Erro ao ler parquet.",
         )
         return jsonify({"ok": False, "erro": "Erro ao ler resultado do levantamento.", "request_id": request_id}), 500
@@ -718,8 +682,8 @@ def gerar():
     if df.empty:
         registrar_log_consulta(
             request_id=request_id, endpoint="gerar",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
+            ip=client_ip,
+            baixado=False,
             status_http=404, erro="Levantamento sem registros.",
         )
         return jsonify({"ok": False, "erro": "O levantamento não encontrou registros.", "request_id": request_id}), 404
@@ -732,50 +696,30 @@ def gerar():
         except Exception:
             pass
 
-    log_data_access(user=auth.get("subject", "unknown"), role=auth.get("role", "unknown"),
+    log_data_access(user=None, role=None,
                     action="GERAR_XLSX", filtros={"resultado_token": token},
                     registros_retornados=len(df), ip=client_ip, request_id=request_id)
     registrar_log_consulta(
         request_id=request_id, endpoint="gerar",
-        usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+        ip=client_ip,
         quantidade_retornada=len(df),
-        tipo_lista=exportacao["tipo_lista"],
         baixado=True,
         status_http=200,
     )
-    venda_id = None
-    if exportacao["tipo_lista"] == "venda":
-        venda_id = request_id  # uma venda por download; request_id identifica a venda
-        registrar_venda(
-            request_id=request_id,
-            usuario_id=auth.get("user_id"),
-            nome_cliente=exportacao["nome_cliente"],
-            valor_lista=exportacao["valor_lista"],
-            parcelado=exportacao["parcelado"],
-            num_parcelas=exportacao["num_parcelas"],
-            valor_parcela=exportacao["valor_parcela"],
-            registros_exportados=len(df),
-        )
 
     buf = gerar_xlsx(df, meta)
     nome = f"lista_{datetime.datetime.now():%Y%m%d_%H%M%S}.xlsx"
     resp = send_file(buf, as_attachment=True, download_name=nome,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    if venda_id:
-        resp.headers["X-Venda-Id"] = venda_id
     return resp
 
 
 @consulta_bp.route("/preview", methods=["POST"])
-@require_auth
-@require_role("admin", "user", "readonly")
 @with_timeout
 def preview():
     t0 = time.perf_counter()
     client_ip = _get_client_ip()
-    auth = g.auth_user
     request_id = getattr(g, "request_id", "")
-    key_id, nome_usuario, usuario_id = extrair_campos_auth(auth)
 
     try:
         data = request.get_json(silent=True) or {}
@@ -783,7 +727,7 @@ def preview():
     except ValidationError as e:
         registrar_log_consulta(
             request_id=request_id, endpoint="preview",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             status_http=400, erro="Dados inválidos.",
         )
         return jsonify({"ok": False, "erro": "Dados inválidos.", "detalhes": e.erros}), 400
@@ -799,7 +743,7 @@ def preview():
         if total_banco == 0:
             registrar_log_consulta(
                 request_id=request_id, endpoint="preview",
-                usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+                ip=client_ip,
                 filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
                 quantidade_retornada=0, esgotou_base=True,
                 tempo_ms=round((time.perf_counter() - t0) * 1000),
@@ -818,12 +762,12 @@ def preview():
         registros_mascarados = [mascarar_registro(r, campos_mascarar)
                                 for r in df_saida.to_dict(orient="records")]
 
-        log_data_access(user=auth.get("subject", "unknown"), role=auth.get("role", "unknown"),
+        log_data_access(user=None, role=None,
                         action="PREVIEW", filtros=filtros, registros_retornados=len(registros_mascarados),
                         ip=client_ip, request_id=request_id)
         registrar_log_consulta(
             request_id=request_id, endpoint="preview",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
             quantidade_retornada=len(registros_mascarados),
             tempo_ms=round((time.perf_counter() - t0) * 1000),
@@ -844,7 +788,7 @@ def preview():
     except ValueError as ve:
         registrar_log_consulta(
             request_id=request_id, endpoint="preview",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             filtros_json=filtros, status_http=400, erro=str(ve),
         )
         return jsonify({"ok": False, "erro": str(ve)}), 400
@@ -852,21 +796,17 @@ def preview():
         log_security_event("PREVIEW_ERROR", severity="ERROR", error=str(e), ip=client_ip)
         registrar_log_consulta(
             request_id=request_id, endpoint="preview",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             filtros_json=filtros, status_http=500, erro=str(e),
         )
         return jsonify({"ok": False, "erro": "Erro interno ao gerar preview.", "request_id": request_id}), 500
 
 
 @consulta_bp.route("/download", methods=["POST"])
-@require_auth
-@require_role("admin", "user")
 @with_timeout
 def download():
     client_ip = _get_client_ip()
-    auth = g.auth_user
     request_id = getattr(g, "request_id", "")
-    key_id, nome_usuario, usuario_id = extrair_campos_auth(auth)
 
     data = request.get_json(silent=True) or {}
 
@@ -875,55 +815,36 @@ def download():
     except ValidationError as e:
         registrar_log_consulta(
             request_id=request_id, endpoint="download",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             status_http=400, erro="Dados inválidos.",
         )
         return jsonify({"ok": False, "erro": "Dados inválidos.", "detalhes": e.erros, "request_id": request_id}), 400
 
-    try:
-        exportacao = validar_exportacao(data)
-    except ValidationError as e:
-        registrar_log_consulta(
-            request_id=request_id, endpoint="download",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
-            status_http=400, erro="Dados de exportação inválidos.",
-        )
-        return jsonify({"ok": False, "erro": "Dados de exportação inválidos.", "detalhes": e.erros, "request_id": request_id}), 400
 
     if not filtros.get("quantidade"):
         filtros["quantidade"] = MAX_REGISTROS_PADRAO
     max_allowed = MAX_REGISTROS_POR_CONSULTA
     filtros["quantidade"] = min(filtros["quantidade"], max_allowed)
 
-    filtros["quantidade"], limite_erro = verificar_e_ajustar_quantidade(nome_usuario, auth.get("role"), filtros["quantidade"])
-    if limite_erro:
-        registrar_log_consulta(
-            request_id=request_id, endpoint="download",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
-            filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
-            status_http=429, erro=limite_erro,
-        )
-        return jsonify({"ok": False, "erro": limite_erro, "request_id": request_id}), 429
 
     try:
         resultado = _pipeline_consulta(filtros)
     except ValueError as ve:
         registrar_log_consulta(
             request_id=request_id, endpoint="download",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
+            baixado=False,
             status_http=400, erro=str(ve),
         )
         return jsonify({"ok": False, "erro": str(ve), "request_id": request_id}), 400
     except Exception as e:
-        log_security_event("DOWNLOAD_ERROR", severity="ERROR", subject=auth.get("subject"), error=str(e), ip=client_ip)
+        log_security_event("DOWNLOAD_ERROR", severity="ERROR", subject=None, error=str(e), ip=client_ip)
         registrar_log_consulta(
             request_id=request_id, endpoint="download",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
+            baixado=False,
             status_http=500, erro=str(e),
         )
         return jsonify({"ok": False, "erro": "Erro interno ao gerar o arquivo.", "request_id": request_id}), 500
@@ -931,42 +852,28 @@ def download():
     if resultado["df_saida"].empty:
         registrar_log_consulta(
             request_id=request_id, endpoint="download",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+            ip=client_ip,
             filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
             quantidade_retornada=0,
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
+            baixado=False,
             status_http=404, erro="Nenhum registro encontrado.",
         )
         return jsonify({"ok": False, "erro": "Nenhum registro encontrado.", "request_id": request_id}), 404
 
-    log_data_access(user=auth.get("subject", "unknown"), role=auth.get("role", "unknown"),
+    log_data_access(user=None, role=None,
                     action="DOWNLOAD_XLSX", filtros=filtros, registros_retornados=resultado["total_final"],
                     ip=client_ip, request_id=request_id)
     registrar_log_consulta(
         request_id=request_id, endpoint="download",
-        usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+        ip=client_ip,
         filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
         quantidade_retornada=resultado["total_final"],
         esgotou_base=resultado["alguma_esgotou"],
         cache_hit=resultado.get("cache_hit", False),
         tempo_ms=round(resultado["duracao_s"] * 1000),
-        tipo_lista=exportacao["tipo_lista"],
         baixado=True,
         status_http=200,
     )
-    venda_id = None
-    if exportacao["tipo_lista"] == "venda":
-        venda_id = request_id  # uma venda por download; request_id identifica a venda
-        registrar_venda(
-            request_id=request_id,
-            usuario_id=auth.get("user_id"),
-            nome_cliente=exportacao["nome_cliente"],
-            valor_lista=exportacao["valor_lista"],
-            parcelado=exportacao["parcelado"],
-            num_parcelas=exportacao["num_parcelas"],
-            valor_parcela=exportacao["valor_parcela"],
-            registros_exportados=resultado["total_final"],
-        )
 
     resumo_xlsx = {
         "filtros_aplicados":     descrever_filtros_db(filtros),
@@ -980,14 +887,12 @@ def download():
     nome = f"lista_{datetime.datetime.now():%Y%m%d_%H%M%S}.xlsx"
     resp = send_file(buf, as_attachment=True, download_name=nome,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    if venda_id:
-        resp.headers["X-Venda-Id"] = venda_id
     return resp
 
 
 # ── Job assíncrono ────────────────────────────────────────────────────────────
 
-def _executar_job(job_id: str, filtros: dict, user: str, ip: str, key_id: str | None = None, usuario_id: int | None = None) -> None:
+def _executar_job(job_id: str, filtros: dict, ip: str) -> None:
     """Worker rodando em thread separada. Atualiza job_store ao concluir."""
     atualizar_job(job_id, status="processando")
     try:
@@ -1012,12 +917,12 @@ def _executar_job(job_id: str, filtros: dict, user: str, ip: str, key_id: str | 
             json.dumps(meta, ensure_ascii=False), encoding="utf-8"
         )
 
-        log_data_access(user=user, role="async_job", action="JOB_CONCLUIDO",
+        log_data_access(user=None, role=None, action="JOB_CONCLUIDO",
                         filtros=filtros, registros_retornados=resultado["total_final"],
                         ip=ip, request_id=job_id)
         registrar_log_consulta(
             request_id=job_id, endpoint="consulta_async",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=user, ip=ip,
+            ip=ip,
             filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
             quantidade_retornada=resultado["total_final"],
             esgotou_base=resultado["alguma_esgotou"],
@@ -1032,7 +937,7 @@ def _executar_job(job_id: str, filtros: dict, user: str, ip: str, key_id: str | 
         log.error("Job %s falhou: %s", job_id, exc)
         registrar_log_consulta(
             request_id=job_id, endpoint="consulta_async",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=user, ip=ip,
+            ip=ip,
             filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
             status_http=500, erro=str(exc),
         )
@@ -1040,8 +945,6 @@ def _executar_job(job_id: str, filtros: dict, user: str, ip: str, key_id: str | 
 
 
 @consulta_bp.route("/iniciar", methods=["POST"])
-@require_auth
-@require_role("admin", "user")
 def iniciar():
     """
     Inicia uma extração assíncrona em background.
@@ -1054,7 +957,6 @@ def iniciar():
     e GET /consulta/job/<job_id>/xlsx para download.
     """
     client_ip = _get_client_ip()
-    auth = g.auth_user
     request_id = getattr(g, "request_id", "")
 
     try:
@@ -1068,21 +970,17 @@ def iniciar():
     max_allowed = MAX_REGISTROS_POR_CONSULTA
     filtros["quantidade"] = min(filtros["quantidade"], max_allowed)
 
-    key_id, nome_usuario, usuario_id = extrair_campos_auth(auth)
 
-    filtros["quantidade"], limite_erro = verificar_e_ajustar_quantidade(nome_usuario, auth.get("role"), filtros["quantidade"])
-    if limite_erro:
-        return jsonify({"ok": False, "erro": limite_erro, "request_id": request_id}), 429
 
     job_id = criar_job(filtros)
     t = threading.Thread(
         target=_executar_job,
-        args=(job_id, filtros, nome_usuario or auth.get("subject", "unknown"), client_ip, key_id, usuario_id),
+        args=(job_id, filtros, client_ip),
         daemon=True,
     )
     t.start()
 
-    log.info("job iniciado", extra={"request_id": request_id, "user": auth.get("subject"), "action": "JOB_INICIADO", "job_id": job_id})
+    log.info("job iniciado", extra={"request_id": request_id, "user": None, "action": "JOB_INICIADO", "job_id": job_id})
 
     return jsonify({
         "ok":         True,
@@ -1093,8 +991,6 @@ def iniciar():
 
 
 @consulta_bp.route("/job/<job_id>", methods=["GET"])
-@require_auth
-@require_role("admin", "user")
 def status_job(job_id: str):
     """
     Retorna status e resultado de um job assíncrono.
@@ -1122,7 +1018,7 @@ def status_job(job_id: str):
         resposta["resultado"]      = job["resultado"]
         resposta["xlsx_url"]       = f"/api/v1/consulta/job/{job_id}/xlsx"
         resposta["xlsx_metodo"]    = "POST"
-        resposta["xlsx_nota"]      = "Enviar tipo_lista (e dados financeiros se venda) no body."
+        resposta["xlsx_nota"]      = "Envie um POST sem metadados comerciais para baixar o arquivo."
     elif job["status"] == "erro":
         resposta["erro"] = job["erro"]
 
@@ -1130,29 +1026,19 @@ def status_job(job_id: str):
 
 
 @consulta_bp.route("/job/<job_id>/xlsx", methods=["POST"])
-@require_auth
-@require_role("admin", "user")
 def download_job(job_id: str):
     """
     Download do XLSX de um job assíncrono concluído.
 
-    Body obrigatório (mesmo da rota /gerar):
-      tipo_lista   "venda" | "consulta_geral" | "teste"
-      + campos financeiros quando tipo_lista == "venda"
+    Não exige body nem metadados comerciais.
     """
     client_ip = _get_client_ip()
     request_id = getattr(g, "request_id", "")
-    auth = g.auth_user
-    key_id, nome_usuario, usuario_id = extrair_campos_auth(auth)
 
     if not re.match(r"^[0-9a-f]{32}$", job_id):
         return jsonify({"ok": False, "erro": "job_id inválido.", "request_id": request_id}), 400
 
     data = request.get_json(silent=True) or {}
-    try:
-        exportacao = validar_exportacao(data)
-    except ValidationError as e:
-        return jsonify({"ok": False, "erro": "Dados de exportação inválidos.", "detalhes": e.erros, "request_id": request_id}), 400
 
     job = obter_job(job_id)
     if job is None:
@@ -1164,8 +1050,8 @@ def download_job(job_id: str):
     if not parquet_path.exists():
         registrar_log_consulta(
             request_id=request_id, endpoint="download_job",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
+            ip=client_ip,
+            baixado=False,
             status_http=410, erro="Parquet do job não encontrado.",
         )
         return jsonify({"ok": False, "erro": "Arquivo de resultado não encontrado.", "request_id": request_id}), 410
@@ -1175,42 +1061,26 @@ def download_job(job_id: str):
     except Exception:
         registrar_log_consulta(
             request_id=request_id, endpoint="download_job",
-            usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
-            tipo_lista=exportacao["tipo_lista"], baixado=False,
+            ip=client_ip,
+            baixado=False,
             status_http=500, erro="Erro ao ler parquet do job.",
         )
         return jsonify({"ok": False, "erro": "Erro ao ler resultado do job.", "request_id": request_id}), 500
 
     meta = job.get("resultado", {})
-    log_data_access(user=auth.get("subject", "unknown"), role=auth.get("role", "unknown"),
+    log_data_access(user=None, role=None,
                     action="DOWNLOAD_JOB_XLSX", filtros={"job_id": job_id},
                     registros_retornados=len(df), ip=client_ip, request_id=request_id)
     registrar_log_consulta(
         request_id=request_id, endpoint="download_job",
-        usuario_id=usuario_id, key_id=key_id, nome_usuario=nome_usuario, role=auth.get("role"), ip=client_ip,
+        ip=client_ip,
         quantidade_retornada=len(df),
-        tipo_lista=exportacao["tipo_lista"],
         baixado=True,
         status_http=200,
     )
-    venda_id = None
-    if exportacao["tipo_lista"] == "venda":
-        venda_id = request_id  # uma venda por download; request_id identifica a venda
-        registrar_venda(
-            request_id=request_id,
-            usuario_id=auth.get("user_id"),
-            nome_cliente=exportacao["nome_cliente"],
-            valor_lista=exportacao["valor_lista"],
-            parcelado=exportacao["parcelado"],
-            num_parcelas=exportacao["num_parcelas"],
-            valor_parcela=exportacao["valor_parcela"],
-            registros_exportados=len(df),
-        )
 
     buf = gerar_xlsx(df, meta)
     nome = f"lista_{datetime.datetime.now():%Y%m%d_%H%M%S}.xlsx"
     resp = send_file(buf, as_attachment=True, download_name=nome,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    if venda_id:
-        resp.headers["X-Venda-Id"] = venda_id
     return resp
