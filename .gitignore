@@ -5,6 +5,7 @@
 api_keys.json
 *.pem
 *.key
+desktop/db_defaults.json
 
 # Dependências e arquivos gerados
 node_modules/

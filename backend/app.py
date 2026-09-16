@@ -10,7 +10,7 @@ import logging
 import os
 import time
 
-from flask import Flask, g, jsonify, request
+from flask import Flask, g, jsonify, request, send_from_directory, abort
 
 from backend.config import DEBUG, MAX_CONTENT_LENGTH
 from backend.utils.json_logger import configurar_logging
@@ -18,7 +18,7 @@ from backend.utils.json_logger import configurar_logging
 configurar_logging()
 
 
-def create_app(test_config=None) -> Flask:
+def create_app(test_config=None, frontend_dir=None) -> Flask:
     """
     Cria e configura a aplicação Flask da API.
     
@@ -34,6 +34,7 @@ def create_app(test_config=None) -> Flask:
       9. Request/Response logging
     """
     app = Flask(__name__)
+    app.config["LOCAL_FRONTEND"] = frontend_dir is not None
     if test_config:
         app.config.update(test_config)
 
@@ -166,6 +167,8 @@ def create_app(test_config=None) -> Flask:
     # ── 8. Rota raiz ─────────────────────────────────────────
     @app.route("/")
     def index():
+        if frontend_dir is not None:
+            return send_from_directory(frontend_dir, "index.html")
         return jsonify({
             "api": "Lista PF - API Local",
             "versao": "1.0.0",
@@ -177,6 +180,14 @@ def create_app(test_config=None) -> Flask:
                 "health": "/api/v1/health",
             },
         }), 200
+
+    if frontend_dir is not None:
+        @app.get("/<path:filename>")
+        def frontend(filename):
+            # Rotas de API inexistentes nunca retornam o HTML da interface.
+            if filename == "api" or filename.startswith("api/"):
+                abort(404)
+            return send_from_directory(frontend_dir, filename)
 
     app.logger.info("API Local inicializada com sucesso.")
     return app

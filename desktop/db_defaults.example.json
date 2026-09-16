@@ -1,0 +1,5 @@
+{
+  "host": "preencha-o-host-do-banco",
+  "port": 3306,
+  "database": "bd_contatus"
+}

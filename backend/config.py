@@ -13,7 +13,8 @@ from pathlib import Path
 # ── Diretórios ─────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent
 PROJECT_DIR = BASE_DIR.parent
-LOGS_DIR = BASE_DIR / "logs"
+DATA_DIR = Path(os.environ.get("DATAOPS_DATA_DIR", str(BASE_DIR)))
+LOGS_DIR = DATA_DIR / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Rate Limiting ──────────────────────────────────────────────

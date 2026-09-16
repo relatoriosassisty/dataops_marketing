@@ -1,0 +1,3 @@
+# dependências exclusivas do empacotamento desktop
+# instale junto com backend/requirements.txt antes de gerar o executável
+pyinstaller>=6.10

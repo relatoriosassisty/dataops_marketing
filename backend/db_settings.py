@@ -81,9 +81,10 @@ COMPRIMENTO_FIXO    = 10
 
 from pathlib import Path
 
-_BASE_DIR   = Path(__file__).parent
-DIR_OUTPUT  = _BASE_DIR / "output"
-DIR_LOGS    = _BASE_DIR / "logs"
+from backend.config import DATA_DIR
+
+DIR_OUTPUT  = DATA_DIR / "output"
+DIR_LOGS    = DATA_DIR / "logs"
 
 # Garante que existem (idempotente)
 DIR_OUTPUT.mkdir(exist_ok=True)

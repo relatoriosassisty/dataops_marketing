@@ -38,6 +38,12 @@ def security_headers_middleware(app: Flask) -> None:
             "base-uri 'none'; "
             "form-action 'none'"
         )
+        if app.config.get("LOCAL_FRONTEND") and request.endpoint in ("index", "frontend"):
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
+                "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+            )
 
         # ── Permissions Policy ───────────────────────────────
         response.headers["Permissions-Policy"] = (

@@ -33,6 +33,7 @@ from backend.config import (
     BATCH_MAX_ITERACOES,
     BATCH_SIZE_DB,
     CACHE_TTL_SECONDS,
+    DATA_DIR,
     MAX_REGISTROS_PADRAO,
     MAX_REGISTROS_POR_CONSULTA,
 )
@@ -66,7 +67,7 @@ import pandas as pd
 consulta_bp = Blueprint("consulta", __name__, url_prefix="/api/v1/consulta")
 
 # ── Armazenamento temporário de levantamentos ───────────────────────────
-_DIR_TEMP = Path(__file__).parent.parent.parent / "output" / "temp"
+_DIR_TEMP = DATA_DIR / "output" / "temp"
 _UUID4_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )

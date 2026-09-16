@@ -25,10 +25,11 @@ from pathlib import Path
 # CAMINHOS BASE
 # ============================================================
 
-_BASE = Path(__file__).parent
-DIR_LOGS_APP     = _BASE / "logs" / "app"
-DIR_LOGS_GERACOES = _BASE / "logs" / "geracoes"
-DIR_OUTPUT       = _BASE / "output"
+from backend.config import DATA_DIR
+
+DIR_LOGS_APP     = DATA_DIR / "logs" / "app"
+DIR_LOGS_GERACOES = DATA_DIR / "logs" / "geracoes"
+DIR_OUTPUT       = DATA_DIR / "output"
 
 # Garante que as pastas existem em runtime
 for _d in (DIR_LOGS_APP, DIR_LOGS_GERACOES, DIR_OUTPUT):

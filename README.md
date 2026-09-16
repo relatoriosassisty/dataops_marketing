@@ -82,6 +82,25 @@ na validação desta edição, passaram 452 testes do backend, os 3 testes do fr
 
 `npm test` executa os testes da edição local com o executor nativo do node.js. os arquivos legados `edge.cases.test.js` e `location.demographic.test.js` ainda dependem de uma configuração de vitest e não fazem parte desse comando.
 
+## gerar executável para outro computador
+
+para entregar um pacote que o usuário final apenas clica duas vezes, sem instalar python, node ou abrir terminal:
+
+```powershell
+copy-item desktop/db_defaults.example.json desktop/db_defaults.json
+# edite desktop/db_defaults.json com o host, porta e banco reais
+.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt -r desktop/requirements.txt
+.\desktop\build.ps1
+```
+
+`desktop/db_defaults.json` não é versionado (está no `.gitignore`), porque carrega o host real do banco; cada máquina que gera o pacote precisa criar o seu a partir do `.example.json`.
+
+o script compila a interface e gera `dist/DataopsMarketing.exe`, um único arquivo autocontido (backend, interface e dependências). envie apenas esse arquivo ao usuário.
+
+na primeira execução, o `.exe` se instala em `%LOCALAPPDATA%\Programs\DataopsMarketing`, cria atalhos na área de trabalho e no menu iniciar, e abre o instalado automaticamente. da segunda vez em diante, o atalho abre diretamente uma janela pedindo apenas usuário e senha do banco; servidor, porta e nome do banco já vêm fixos no pacote, vindos de `desktop/db_defaults.json`, e as mesmas credenciais são usadas para consulta e enriquecimento. a conexão fica salva de forma criptografada (dpapi do windows, vinculada à conta do usuário), então nas próximas vezes a aplicação conecta e abre sozinha, sem repetir os dados. o botão "alterar conexão" permite trocar usuário e senha quando necessário.
+
+o executável sobe o backend em uma porta local livre, serve a interface já compilada no mesmo endereço e abre o navegador padrão automaticamente. nenhuma porta fica exposta fora de `127.0.0.1`, e o acesso ao banco continua exigindo as mesmas credenciais que a equipe já usa hoje.
+
 ## documentação
 
 consulte os [utilitários de dados](backend/scripts/README.md), a [estrutura do banco](backend/docs/tabelas_banco.md) e o [mapeamento de qualidade](backend/docs/mapeamento_qualidade_dados.md).
