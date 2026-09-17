@@ -188,11 +188,17 @@ class Window:
                     message = "Confira usuário e senha do banco. Verifique também a rede, VPN e a liberação de acesso ao banco."
                     if isinstance(error, ValueError):
                         message = str(error)
-                messagebox.showerror("Não foi possível continuar", message, parent=self.root)
+                try:
+                    messagebox.showerror("Não foi possível continuar", message, parent=self.root)
+                except tk.TclError:
+                    return
             else:
                 callback(result)
-        if self.root.winfo_exists():
-            self.root.after(100, self.poll)
+        try:
+            if self.root.winfo_exists():
+                self.root.after(100, self.poll)
+        except tk.TclError:
+            pass
 
     def install(self):
         def installed(path):
@@ -295,15 +301,22 @@ def main():
         sys.stderr = open(directory / "launcher.log", "a", encoding="utf-8", buffering=1)
         sys.stdout = sys.stderr
     root = tk.Tk()
-    root.report_callback_exception = lambda *exc_info: (
-        logging.getLogger("desktop").error("erro na interface", exc_info=exc_info),
-        messagebox.showerror(
-            "Dataops Marketing",
-            "Ocorreu um problema inesperado. A janela continua aberta; "
-            "tente novamente ou reabra o programa.",
-            parent=root,
-        ),
-    )
+
+    def _on_callback_error(exc_type, exc_value, exc_tb):
+        if exc_type is tk.TclError and "application has been destroyed" in str(exc_value):
+            return
+        logging.getLogger("desktop").error("erro na interface", exc_info=(exc_type, exc_value, exc_tb))
+        try:
+            messagebox.showerror(
+                "Dataops Marketing",
+                "Ocorreu um problema inesperado. A janela continua aberta; "
+                "tente novamente ou reabra o programa.",
+                parent=root,
+            )
+        except tk.TclError:
+            pass
+
+    root.report_callback_exception = _on_callback_error
     window = Window(root, installing=installing)
     if not installing:
         import msvcrt
