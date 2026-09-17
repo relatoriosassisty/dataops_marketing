@@ -26,6 +26,10 @@ Parâmetros aceitos e suas etapas de processamento:
 
   QUANTIDADE:
     quantidade    opcional     inteiro >= 1  (teto por role aplicado na rota)
+
+  EXCLUSÃO (opcional):
+    exclusao_token  token (uuid4) retornado por POST /consulta/excluir-cpfs.
+                    CPFs da lista enviada são removidos do resultado.
 """
 
 import re
@@ -39,6 +43,10 @@ UFS_VALIDAS = {
     "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN",
     "RO", "RR", "RS", "SC", "SE", "SP", "TO",
 }
+
+_UUID4_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
 
 GENEROS_VALIDOS      = {"M", "F", "MASCULINO", "FEMININO", "AMBOS"}
 EMAIL_OPCOES         = {"obrigatorio", "nao_filtrar", "nao", "preferencial"}
@@ -366,6 +374,14 @@ def validar_consulta(data: dict) -> dict:
                 if limpos:
                     bairros_por_cidade[cidade_k] = limpos
     resultado["bairros_por_cidade"] = bairros_por_cidade
+
+    # ── Exclusão de CPFs já obtidos (opcional) ────────────────
+    # Token retornado por POST /consulta/excluir-cpfs.
+    exclusao_token = str(data.get("exclusao_token", "")).strip().lower()
+    if exclusao_token and not _UUID4_RE.match(exclusao_token):
+        erros.append("'exclusao_token' inválido.")
+        exclusao_token = ""
+    resultado["exclusao_token"] = exclusao_token or None
 
     if erros:
         raise ValidationError(erros)

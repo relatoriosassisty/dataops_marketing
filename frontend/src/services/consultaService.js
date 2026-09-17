@@ -8,6 +8,23 @@ import { IS_MOCK, mockContagem, mockGerarLista } from './mockData';
 
 export const consultaService = {
   /**
+   * Envia um CSV/TXT com CPFs a excluir do próximo levantamento.
+   * Retorna { exclusao_token, quantidade }.
+   */
+  async excluirCpfs(arquivo) {
+    if (IS_MOCK) {
+      await new Promise((r) => setTimeout(r, 400));
+      return { ok: true, exclusao_token: 'mock-token', quantidade: 0 };
+    }
+    const formData = new FormData();
+    formData.append('arquivo', arquivo);
+    const { data } = await api.post('/api/v1/consulta/excluir-cpfs', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
+
+  /**
    * Apenas contagem — não retorna dados pessoais.
    */
   async contagem(filtros) {

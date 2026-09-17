@@ -8,6 +8,7 @@ import LocationFilters from './LocationFilters';
 import PersonFilters from './PersonFilters';
 import PhoneFilters from './PhoneFilters';
 import DistribuicaoQuantidade from './DistribuicaoQuantidade';
+import ExcluirCpfsUpload from './ExcluirCpfsUpload';
 
 const FILTROS_PADRAO = {
   // Localização
@@ -33,6 +34,8 @@ const FILTROS_PADRAO = {
   bairrosCidadeMap: {},
   // Proporção de gênero (só ativa quando genero === '')
   generoDistribuicao: { M: 50, F: 50 },
+  // Exclusão de CPFs já obtidos: { token, quantidade, nomeArquivo } | null
+  exclusaoCpfs: null,
 };
 
 export default function FilterForm({ onContagem, onGerar, carregando, temToken, onFiltrosChange }) {
@@ -72,6 +75,7 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
     if (k === 'genero') return v !== '';
     if (k === 'quantidade') return v !== 5000;
     if (k === 'altaRenda') return v === true;
+    if (k === 'exclusaoCpfs') return v != null;
     return false;
   }).length;
 
@@ -89,6 +93,7 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
     ddds: filtros.ddds.length > 0 ? filtros.ddds : undefined,
     quantidade: filtros.quantidade,
     cbos: filtros.profissoes.length > 0 ? filtros.profissoes : undefined,
+    exclusao_token: filtros.exclusaoCpfs?.token || undefined,
     // proporção de gênero: só envia quando é ambos e não é 50/50
     genero_distribuicao: (
       filtros.genero === '' &&
@@ -168,6 +173,11 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
           </div>
           <div className="card-padrao" style={{ position: 'relative' }}>
             <PhoneFilters valores={filtros} onChange={atualizar} />
+            <hr style={{ borderColor: 'var(--borda)' }} />
+            <ExcluirCpfsUpload
+              valor={filtros.exclusaoCpfs}
+              onChange={(exclusaoCpfs) => atualizar({ exclusaoCpfs })}
+            />
           </div>
         </div>
       </div>

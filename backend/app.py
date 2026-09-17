@@ -100,6 +100,12 @@ def create_app(test_config=None, frontend_dir=None) -> Flask:
                         _f.unlink(missing_ok=True)
                 except Exception:
                     pass
+            for _f in (_DIR_TEMP / "exclusoes").glob("*.json"):
+                try:
+                    if agora - _f.stat().st_mtime > 1800:
+                        _f.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
         # Evita duplicar o scheduler no reloader do Flask (debug mode)
         if _os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:

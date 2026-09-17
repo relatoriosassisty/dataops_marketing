@@ -32,6 +32,7 @@ from backend.middleware.ip_filter import _get_real_ip as _get_client_ip
 from backend.config_db import DB_CONFIG, DB_CONFIG_ADMIN
 from backend.middleware.timeout_middleware import with_timeout
 from backend.utils.audit_logger import log_data_access, log_security_event
+from backend.utils.cpf_utils import normalizar_cpf as _normalizar_cpf
 from backend.utils.db_logger import registrar_log_consulta
 from backend.utils.xlsx_exporter import gerar_excel_bytes
 
@@ -108,12 +109,7 @@ JOIN (
 
 
 # ── Normalizadores ───────────────────────────────────────────────────────────
-
-def _normalizar_cpf(valor: str) -> str | None:
-    """Retorna CPF apenas com dígitos (11), ou None se inválido."""
-    cpf = re.sub(r"\D", "", str(valor))
-    return cpf if len(cpf) == 11 else None
-
+# _normalizar_cpf vem de backend.utils.cpf_utils (compartilhado com consulta).
 
 def _normalizar_telefone(valor: str) -> str | None:
     """

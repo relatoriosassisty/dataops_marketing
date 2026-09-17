@@ -11,6 +11,7 @@ Rotas:
   POST /api/v1/consulta/download     → consulta + download XLSX direto
   POST /api/v1/consulta/iniciar      → inicia job assíncrono, retorna job_id
   GET  /api/v1/consulta/job/<job_id> → status/resultado do job assíncrono
+  POST /api/v1/consulta/excluir-cpfs → envia lista de CPFs a excluir, retorna token
 
 Rotas locais sem autenticação, com registro técnico das operações.
 """
@@ -42,6 +43,7 @@ from backend.config_db import DB_CONFIG
 from backend.middleware.timeout_middleware import with_timeout
 from backend.utils.alta_renda import buscar_bairros as _buscar_bairros_ar
 from backend.utils.audit_logger import log_data_access, log_security_event
+from backend.utils.cpf_utils import parse_arquivo_cpfs
 from backend.utils.db_logger import registrar_log_consulta
 from backend.utils.data_cleaner import limpar_dataframe, relatorio_html
 from backend.utils.data_processor import colunas_saida, processar
@@ -72,6 +74,45 @@ _UUID4_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
 _TOKEN_MAX_AGE = 1800  # segundos (30 minutos)
+
+# ── Exclusão de CPFs já obtidos (lista enviada pelo usuário) ────────────
+_MAX_BYTES_EXCLUSAO = 10 * 1024 * 1024  # 10 MB, mesmo limite do enriquecimento
+_MAX_CPFS_EXCLUSAO = 1_000_000
+
+
+def _dir_exclusao() -> Path:
+    # Calculado a cada chamada (não módulo-level) para respeitar _DIR_TEMP
+    # quando substituído em testes (monkeypatch) ou por configuração dinâmica.
+    return _DIR_TEMP / "exclusoes"
+
+
+def _carregar_exclusao_cpfs(token: str | None) -> set[str] | None:
+    """Lê o conjunto de CPFs a excluir salvo por /excluir-cpfs. None se sem token."""
+    if not token:
+        return None
+    caminho = _dir_exclusao() / f"{token}.json"
+    if not caminho.exists():
+        raise ValueError("Lista de CPFs a excluir não encontrada. Envie o arquivo novamente.")
+    if time.time() - caminho.stat().st_mtime > _TOKEN_MAX_AGE:
+        caminho.unlink(missing_ok=True)
+        raise ValueError("Lista de CPFs a excluir expirou. Envie o arquivo novamente.")
+    try:
+        return set(json.loads(caminho.read_text(encoding="utf-8")))
+    except Exception:
+        raise ValueError("Erro ao ler a lista de CPFs a excluir.")
+
+
+def _aplicar_exclusao(resultado: dict, token: str | None) -> dict:
+    """Remove do resultado os CPFs presentes na lista de exclusão, se houver token."""
+    exclude_cpfs = _carregar_exclusao_cpfs(token)
+    if not exclude_cpfs:
+        return resultado
+    df = resultado["df_saida"]
+    if "CPF" in df.columns:
+        df = df[~df["CPF"].astype(str).isin(exclude_cpfs)].reset_index(drop=True)
+        resultado["df_saida"] = df
+        resultado["total_final"] = len(df)
+    return resultado
 
 
 def _conectar_banco():
@@ -343,7 +384,9 @@ def _pipeline_consulta(filtros: dict) -> dict:
     t0 = time.perf_counter()
 
     # ── Cache hit ─────────────────────────────────────────────────────────────
-    ck = cache_key(filtros)
+    # exclusao_token fica fora da chave: a exclusão é aplicada depois (na rota),
+    # então listas de exclusão diferentes ainda podem reaproveitar o mesmo cache.
+    ck = cache_key({k: v for k, v in filtros.items() if k != "exclusao_token"})
     cached = cache_get(ck)
     if cached:
         df = cached["df"]
@@ -455,6 +498,62 @@ def _pipeline_consulta(filtros: dict) -> dict:
     }
 
 
+@consulta_bp.route("/excluir-cpfs", methods=["POST"])
+@with_timeout
+def excluir_cpfs():
+    """
+    Recebe um arquivo .txt/.csv com CPFs a excluir do próximo levantamento
+    (por exemplo, uma lista já baixada antes) e devolve um token válido por
+    30 minutos. Envie esse token em 'exclusao_token' nos filtros de
+    /consulta, /consulta/contagem, /consulta/download ou /consulta/iniciar
+    para que o resultado traga apenas CPFs fora dessa lista.
+
+    Rota: POST /api/v1/consulta/excluir-cpfs
+    Content-Type: multipart/form-data
+      arquivo : arquivo .txt ou .csv (um CPF por linha; CSV usa 1ª coluna)
+    """
+    client_ip = _get_client_ip()
+    request_id = getattr(g, "request_id", "")
+
+    arquivo = request.files.get("arquivo")
+    if arquivo is None or not arquivo.filename:
+        return jsonify({"ok": False, "erro": "Envie um arquivo no campo 'arquivo'.", "request_id": request_id}), 400
+
+    raw = arquivo.read(_MAX_BYTES_EXCLUSAO + 1)
+    if len(raw) > _MAX_BYTES_EXCLUSAO:
+        return jsonify({"ok": False, "erro": "Arquivo excede o tamanho máximo de 10 MB.", "request_id": request_id}), 413
+
+    try:
+        cpfs = parse_arquivo_cpfs(raw)
+    except Exception:
+        return jsonify({"ok": False, "erro": "Não foi possível ler o arquivo enviado.", "request_id": request_id}), 400
+
+    if not cpfs:
+        return jsonify({"ok": False, "erro": "Nenhum CPF válido encontrado no arquivo.", "request_id": request_id}), 400
+    if len(cpfs) > _MAX_CPFS_EXCLUSAO:
+        return jsonify({
+            "ok": False,
+            "erro": f"Arquivo excede o máximo de {_MAX_CPFS_EXCLUSAO:,} CPFs.".replace(",", "."),
+            "request_id": request_id,
+        }), 400
+
+    token = str(uuid.uuid4())
+    dir_exclusao = _dir_exclusao()
+    dir_exclusao.mkdir(parents=True, exist_ok=True)
+    (dir_exclusao / f"{token}.json").write_text(json.dumps(cpfs), encoding="utf-8")
+
+    log_data_access(user=None, role=None,
+                    action="EXCLUSAO_CPFS_UPLOAD", filtros={"quantidade_cpfs": len(cpfs)},
+                    registros_retornados=len(cpfs), ip=client_ip, request_id=request_id)
+
+    return jsonify({
+        "ok": True,
+        "exclusao_token": token,
+        "quantidade": len(cpfs),
+        "request_id": request_id,
+    }), 200
+
+
 @consulta_bp.route("", methods=["POST"])
 @with_timeout
 def consultar():
@@ -497,6 +596,11 @@ def consultar():
             status_http=500, erro=str(e),
         )
         return jsonify({"ok": False, "erro": "Erro interno ao processar a consulta.", "request_id": request_id}), 500
+
+    try:
+        resultado = _aplicar_exclusao(resultado, filtros.get("exclusao_token"))
+    except ValueError as ve:
+        return jsonify({"ok": False, "erro": str(ve), "request_id": request_id}), 400
 
     qualidade = metricas_qualidade(resultado["df_saida"])
     log.info(
@@ -581,6 +685,11 @@ def contagem():
             status_http=500, erro=str(e),
         )
         return jsonify({"ok": False, "erro": "Erro interno ao processar o levantamento.", "request_id": request_id}), 500
+
+    try:
+        resultado = _aplicar_exclusao(resultado, filtros.get("exclusao_token"))
+    except ValueError as ve:
+        return jsonify({"ok": False, "erro": str(ve), "request_id": request_id}), 400
 
     df_saida = resultado["df_saida"]
     total_disponivel = len(df_saida)
@@ -850,6 +959,11 @@ def download():
         )
         return jsonify({"ok": False, "erro": "Erro interno ao gerar o arquivo.", "request_id": request_id}), 500
 
+    try:
+        resultado = _aplicar_exclusao(resultado, filtros.get("exclusao_token"))
+    except ValueError as ve:
+        return jsonify({"ok": False, "erro": str(ve), "request_id": request_id}), 400
+
     if resultado["df_saida"].empty:
         registrar_log_consulta(
             request_id=request_id, endpoint="download",
@@ -898,6 +1012,7 @@ def _executar_job(job_id: str, filtros: dict, ip: str) -> None:
     atualizar_job(job_id, status="processando")
     try:
         resultado = _pipeline_consulta(filtros)
+        resultado = _aplicar_exclusao(resultado, filtros.get("exclusao_token"))
         df = resultado["df_saida"]
 
         # Salva parquet para download posterior
