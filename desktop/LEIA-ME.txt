@@ -54,6 +54,27 @@ PROBLEMAS COMUNS
   do programa ainda aberta - ela mostra um botão para abrir a
   aplicação manualmente.
 
+- "O Windows protegeu o computador" (tela azul do SmartScreen):
+  clique em "Mais informações" e depois em "Executar assim mesmo".
+  Isso aparece porque o programa não tem um certificado pago de
+  assinatura digital, não porque ele tem algum problema.
+
+- "Uma política de Controle de Aplicativo bloqueou este arquivo"
+  ou o programa simplesmente não abre e não mostra nada: o
+  computador está com o "Smart App Control" do Windows ativado,
+  que bloqueia qualquer programa não assinado digitalmente, sem
+  opção de liberar esse arquivo específico. Para verificar e
+  desativar:
+    1. Abra Configurações do Windows.
+    2. Vá em Privacidade e segurança > Segurança do Windows >
+       Controle de aplicativos e navegador.
+    3. Em "Smart App Control", clique em "Configurações do Smart
+       App Control" e mude para "Desativado".
+    4. Talvez seja necessário reiniciar o computador.
+  Atenção: depois de desativado, só é possível reativar
+  reinstalando o Windows. Se não tiver certeza, peça ajuda ao
+  time de TI antes de mudar essa configuração.
+
 
 IMPORTANTE
 ----------
