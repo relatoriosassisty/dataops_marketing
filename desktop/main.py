@@ -1,4 +1,5 @@
 """Aplicativo Windows: instalação, conexão e inicialização sem terminal."""
+import ctypes
 import json
 import logging
 import os
@@ -10,10 +11,40 @@ import sys
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
+import traceback
 import webbrowser
 
 if not getattr(sys, "frozen", False):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+try:
+    # Evita janela borrada/no tamanho errado em telas com escala diferente
+    # (a máquina que gera o pacote raramente tem a mesma escala do usuário final).
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    pass
+
+
+def _fatal_startup_error():
+    """Sem console (windowed), um erro antes da janela abrir some sem aviso.
+    Grava um log e mostra uma caixa nativa do Windows, sem depender do tkinter."""
+    try:
+        directory = data_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "launcher.log").open("a", encoding="utf-8").write(
+            "\n--- falha ao iniciar ---\n" + traceback.format_exc()
+        )
+    except Exception:
+        pass
+    ctypes.windll.user32.MessageBoxW(
+        0,
+        "O Dataops Marketing não conseguiu abrir neste computador.\n\n"
+        "Feche o antivírus temporariamente e tente novamente, ou avise a "
+        "equipe técnica com o arquivo launcher.log salvo em "
+        "%LOCALAPPDATA%\\DataopsMarketing.",
+        "Dataops Marketing",
+        0x10,
+    )
 
 from desktop.settings import apply_settings, data_dir, load_settings, save_settings, test_connection
 from desktop.server import LocalServer, resource_root
@@ -264,6 +295,15 @@ def main():
         sys.stderr = open(directory / "launcher.log", "a", encoding="utf-8", buffering=1)
         sys.stdout = sys.stderr
     root = tk.Tk()
+    root.report_callback_exception = lambda *exc_info: (
+        logging.getLogger("desktop").error("erro na interface", exc_info=exc_info),
+        messagebox.showerror(
+            "Dataops Marketing",
+            "Ocorreu um problema inesperado. A janela continua aberta; "
+            "tente novamente ou reabra o programa.",
+            parent=root,
+        ),
+    )
     window = Window(root, installing=installing)
     if not installing:
         import msvcrt
@@ -285,4 +325,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        _fatal_startup_error()
+        raise
