@@ -355,13 +355,13 @@ export default function PhoneFilters({ valores, onChange }) {
       <div className="mb-1">
         <label className="form-label fw-semibold" style={{ color: 'var(--roxo-escuro)' }}>
           Quantidade máxima
-          <span className="badge-filtro ms-2">máx. 50.000</span>
+          <span className="badge-filtro ms-2">máx. 500.000</span>
         </label>
         <input
           type="number"
           className="form-control"
           min={100}
-          max={50000}
+          max={500000}
           step={100}
           value={valores.quantidade ?? 5000}
           onChange={(e) => onChange({ quantidade: Number(e.target.value) })}
