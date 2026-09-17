@@ -95,7 +95,7 @@ copy-item desktop/db_defaults.example.json desktop/db_defaults.json
 
 `desktop/db_defaults.json` não é versionado (está no `.gitignore`), porque carrega o host real do banco; cada máquina que gera o pacote precisa criar o seu a partir do `.example.json`.
 
-o script compila a interface e gera `dist/DataopsMarketing.exe`, um único arquivo autocontido (backend, interface e dependências). envie apenas esse arquivo ao usuário.
+o script compila a interface e gera `dist/DataopsMarketing.exe` (autocontido, com backend, interface e dependências) e copia `dist/LEIA-ME.txt`, um guia em linguagem simples para quem vai usar o programa no dia a dia. envie os dois arquivos ao usuário final.
 
 na primeira execução, o `.exe` se instala em `%LOCALAPPDATA%\Programs\DataopsMarketing`, cria atalhos na área de trabalho e no menu iniciar, e abre o instalado automaticamente. da segunda vez em diante, o atalho abre diretamente uma janela pedindo apenas usuário e senha do banco; servidor, porta e nome do banco já vêm fixos no pacote, vindos de `desktop/db_defaults.json`, e as mesmas credenciais são usadas para consulta e enriquecimento. a conexão fica salva de forma criptografada (dpapi do windows, vinculada à conta do usuário), então nas próximas vezes a aplicação conecta e abre sozinha, sem repetir os dados. o botão "alterar conexão" permite trocar usuário e senha quando necessário.
 

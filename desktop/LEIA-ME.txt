@@ -1,0 +1,64 @@
+DATAOPS MARKETING - COMO USAR
+==============================
+
+O QUE É
+-------
+Um programa para gerar listas de contatos e fazer enriquecimento de
+CPFs/telefones, direto no seu computador.
+
+
+COMO INSTALAR
+-------------
+1. Copie o arquivo "DataopsMarketing.exe" para o seu computador
+   (pode deixar na Área de Trabalho ou em Downloads).
+2. Dê dois cliques nele.
+3. Na primeira vez, vai aparecer uma tela pedindo para instalar.
+   Clique em "Instalar e abrir" e aguarde.
+4. O programa cria um atalho na Área de Trabalho e abre sozinho.
+
+Da próxima vez, use esse atalho para abrir o programa.
+
+
+PRIMEIRO ACESSO
+----------------
+Na primeira vez que o programa abrir, ele vai pedir:
+
+  - Usuário do banco
+  - Senha do banco
+
+Digite os dados que a sua equipe te passou e clique em
+"Conectar e abrir". Se tudo estiver certo, o programa abre
+sozinho no seu navegador.
+
+Da próxima vez que você abrir o programa, ele já vai lembrar
+esses dados e conectar sozinho, sem pedir de novo.
+
+
+SE PRECISAR TROCAR USUÁRIO OU SENHA
+-------------------------------------
+Na tela do programa, clique no botão "Alterar conexão" e
+informe os novos dados.
+
+
+PROBLEMAS COMUNS
+-----------------
+- "Não foi possível concluir": confira se digitou o usuário e a
+  senha certos, e se o seu computador está com internet/rede
+  liberada para acessar o banco (às vezes é preciso estar
+  conectado na VPN da empresa).
+
+- "A aplicação já está aberta": o programa já está rodando em
+  outra janela. Procure o ícone dele na barra de tarefas.
+
+- O navegador não abriu sozinho: procure por uma janela pequena
+  do programa ainda aberta - ela mostra um botão para abrir a
+  aplicação manualmente.
+
+
+IMPORTANTE
+----------
+- Não é preciso instalar Python, Node ou qualquer outro programa.
+- Enquanto você estiver usando, mantenha a janela pequena do
+  "Dataops Marketing" aberta - fechá-la encerra o programa.
+- Esse programa funciona só no seu computador; não compartilhe
+  o link que ele abre com outras pessoas.

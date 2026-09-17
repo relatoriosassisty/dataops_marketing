@@ -20,8 +20,8 @@ npm --prefix frontend run build
 Write-Host "Gerando o executável..."
 Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
 pyinstaller desktop/dataops_marketing.spec --distpath dist --workpath build --noconfirm
+Copy-Item desktop/LEIA-ME.txt dist/LEIA-ME.txt
 
 Write-Host ""
-Write-Host "Pronto: dist/DataopsMarketing.exe"
-Write-Host "Envie apenas esse arquivo ao usuário final. Ao abri-lo pela primeira vez," -ForegroundColor Cyan
-Write-Host "ele se instala em %LOCALAPPDATA%, cria um atalho e depois pede os dados de conexão." -ForegroundColor Cyan
+Write-Host "Pronto: dist/DataopsMarketing.exe e dist/LEIA-ME.txt" -ForegroundColor Cyan
+Write-Host "Envie os dois arquivos juntos ao usuário final." -ForegroundColor Cyan
