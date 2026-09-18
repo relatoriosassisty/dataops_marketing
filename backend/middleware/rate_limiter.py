@@ -115,6 +115,12 @@ def rate_limit_middleware(app: Flask) -> None:
     def check_rate_limit():
         if not RATE_LIMIT_ENABLED or request.method == "OPTIONS":
             return None
+        # Rotas de localidades servem dados estáticos em memória (UFs, cidades,
+        # bairros) e a interface dispara várias chamadas em paralelo ao marcar
+        # cada estado — contra esse limite pensado para consultas ao banco,
+        # isso esgotava a cota e fazia cidades "sumirem" da tela sem aviso.
+        if request.method == "GET" and request.path.startswith("/api/v1/localidades/"):
+            return None
         result = limiter.check(request.remote_addr or "unknown")
         g.rate_limit_info = result
         if not result["allowed"]:
