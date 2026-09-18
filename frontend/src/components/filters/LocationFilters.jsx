@@ -184,14 +184,19 @@ export default function LocationFilters({ valores, onChange }) {
   const [carregandoBairros, setCarregandoBairros] = useState(false);
   const [altaRendaInfo, setAltaRendaInfo] = useState(null);
   const [carregandoAR, setCarregandoAR] = useState(false);
+  const [erroCidades, setErroCidades] = useState(false);
+  const [erroBairros, setErroBairros] = useState(false);
 
   // Mapa cidade → UF, atualizado quando as cidades são carregadas.
   // Usado na busca de bairros para saber qual UF chamar por cidade.
   const cidadeUfMapRef = useRef({});
 
-  /* Carrega cidades para todos os UFs selecionados em paralelo */
+  /* Carrega cidades para todos os UFs selecionados em paralelo.
+     Espera um instante após a última mudança (debounce) para não disparar
+     um lote novo de requisições a cada estado marcado em sequência. */
   useEffect(() => {
     setCidades([]);
+    setErroCidades(false);
     cidadeUfMapRef.current = {};
 
     if (!valores.ufs?.length) {
@@ -218,39 +223,44 @@ export default function LocationFilters({ valores, onChange }) {
     let cancelled = false;
     const controllers = valores.ufs.map(() => new AbortController());
 
-    Promise.all(
-      valores.ufs.map((uf, i) =>
-        api
-          .get(`/api/v1/localidades/cidades?uf=${uf}`, { signal: controllers[i].signal })
-          .then(({ data }) => ({ uf, cidades: data.cidades || [] }))
-          .catch((err) => {
-            if (err.name === 'CanceledError' || err.name === 'AbortError') throw err;
-            return { uf, cidades: [] };
-          })
+    const debounce = setTimeout(() => {
+      Promise.all(
+        valores.ufs.map((uf, i) =>
+          api
+            .get(`/api/v1/localidades/cidades?uf=${uf}`, { signal: controllers[i].signal })
+            .then(({ data }) => ({ uf, cidades: data.cidades || [], falhou: false }))
+            .catch((err) => {
+              if (err.name === 'CanceledError' || err.name === 'AbortError') throw err;
+              return { uf, cidades: [], falhou: true };
+            })
+        )
       )
-    )
-      .then((results) => {
-        if (cancelled) return;
-        const novoMap = {};
-        const todas = [];
-        results.forEach(({ uf, cidades: lista }) => {
-          lista.forEach((cidade) => { novoMap[cidade] = uf; todas.push(cidade); });
-        });
-        cidadeUfMapRef.current = novoMap;
-        setCidades([...new Set(todas)].sort());
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setCarregandoCidades(false); });
+        .then((results) => {
+          if (cancelled) return;
+          const novoMap = {};
+          const todas = [];
+          results.forEach(({ uf, cidades: lista }) => {
+            lista.forEach((cidade) => { novoMap[cidade] = uf; todas.push(cidade); });
+          });
+          cidadeUfMapRef.current = novoMap;
+          setCidades([...new Set(todas)].sort());
+          setErroCidades(results.some((r) => r.falhou));
+        })
+        .catch(() => {})
+        .finally(() => { if (!cancelled) setCarregandoCidades(false); });
+    }, 350);
 
     return () => {
       cancelled = true;
+      clearTimeout(debounce);
       controllers.forEach((c) => c.abort());
     };
   }, [valores.ufs?.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* Carrega bairros para todas as cidades selecionadas em paralelo */
+  /* Carrega bairros para todas as cidades selecionadas em paralelo (com debounce) */
   useEffect(() => {
     setBairros([]);
+    setErroBairros(false);
 
     if (!valores.cidades?.length) return;
 
@@ -268,39 +278,43 @@ export default function LocationFilters({ valores, onChange }) {
     let cancelled = false;
     const controllers = valores.cidades.map(() => new AbortController());
 
-    Promise.all(
-      valores.cidades.map((cidade, i) => {
-        const uf = cidadeUfMapRef.current[cidade] || valores.ufs?.[0];
-        if (!uf) return Promise.resolve({ cidade, bairros: [] });
-        return api
-          .get(`/api/v1/localidades/bairros?uf=${uf}&cidade=${encodeURIComponent(cidade)}`, {
-            signal: controllers[i].signal,
-          })
-          .then(({ data }) => ({ cidade, bairros: data.bairros || [] }))
-          .catch((err) => {
-            if (err.name === 'CanceledError' || err.name === 'AbortError') throw err;
-            return { cidade, bairros: [] };
+    const debounce = setTimeout(() => {
+      Promise.all(
+        valores.cidades.map((cidade, i) => {
+          const uf = cidadeUfMapRef.current[cidade] || valores.ufs?.[0];
+          if (!uf) return Promise.resolve({ cidade, bairros: [], falhou: false });
+          return api
+            .get(`/api/v1/localidades/bairros?uf=${uf}&cidade=${encodeURIComponent(cidade)}`, {
+              signal: controllers[i].signal,
+            })
+            .then(({ data }) => ({ cidade, bairros: data.bairros || [], falhou: false }))
+            .catch((err) => {
+              if (err.name === 'CanceledError' || err.name === 'AbortError') throw err;
+              return { cidade, bairros: [], falhou: true };
+            });
+        })
+      )
+        .then((results) => {
+          if (cancelled) return;
+          const novoMapa = {};
+          const todos = [];
+          results.forEach(({ cidade, bairros: lista }) => {
+            lista.forEach((b) => {
+              if (!novoMapa[b]) novoMapa[b] = cidade;
+              todos.push(b);
+            });
           });
-      })
-    )
-      .then((results) => {
-        if (cancelled) return;
-        const novoMapa = {};
-        const todos = [];
-        results.forEach(({ cidade, bairros: lista }) => {
-          lista.forEach((b) => {
-            if (!novoMapa[b]) novoMapa[b] = cidade;
-            todos.push(b);
-          });
-        });
-        setBairros([...new Set(todos)].sort());
-        onChange({ bairrosCidadeMap: novoMapa });
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setCarregandoBairros(false); });
+          setBairros([...new Set(todos)].sort());
+          setErroBairros(results.some((r) => r.falhou));
+          onChange({ bairrosCidadeMap: novoMapa });
+        })
+        .catch(() => {})
+        .finally(() => { if (!cancelled) setCarregandoBairros(false); });
+    }, 350);
 
     return () => {
       cancelled = true;
+      clearTimeout(debounce);
       controllers.forEach((c) => c.abort());
     };
   }, [valores.cidades?.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -408,6 +422,12 @@ export default function LocationFilters({ valores, onChange }) {
               : 'Nenhuma cidade encontrada'
           }
         />
+        {erroCidades && !carregandoCidades && (
+          <small className="d-block mt-1" style={{ color: 'var(--aviso, #b8860b)' }}>
+            <i className="bi bi-exclamation-triangle-fill me-1" />
+            Algumas cidades não carregaram. Desmarque e marque o estado de novo para tentar outra vez.
+          </small>
+        )}
       </div>
 
       {/* Bairro */}
@@ -435,6 +455,12 @@ export default function LocationFilters({ valores, onChange }) {
               : 'Nenhum bairro encontrado'
           }
         />
+        {erroBairros && !carregandoBairros && (
+          <small className="d-block mt-1" style={{ color: 'var(--aviso, #b8860b)' }}>
+            <i className="bi bi-exclamation-triangle-fill me-1" />
+            Alguns bairros não carregaram. Desmarque e marque a cidade de novo para tentar outra vez.
+          </small>
+        )}
       </div>
 
       {/* Alta Renda */}

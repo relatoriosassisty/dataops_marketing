@@ -132,3 +132,21 @@ class TestRateLimitMiddleware:
         for _ in range(50):
             resp = client.get("/api/v1/health")
             assert resp.status_code == 200
+
+    def test_localidades_isenta_do_limite(self, client, monkeypatch):
+        """Selecionar muitos estados dispara várias chamadas a /localidades em
+        paralelo; essas rotas não podem estourar o limite pensado para
+        consultas ao banco (ver bug: cidades sumindo ao marcar muitos UFs)."""
+        monkeypatch.setattr("backend.middleware.rate_limiter.RATE_LIMIT_ENABLED", True)
+        for _ in range(40):
+            resp = client.get("/api/v1/localidades/cidades?uf=SP")
+            assert resp.status_code != 429
+
+    def test_outras_rotas_continuam_limitadas(self, client, monkeypatch):
+        # RATE_LIMIT_DEFAULT é lido na criação do app (fixture já criou o
+        # limiter), então usamos o limite real de 30/min em vez de tentar
+        # trocar a config depois — o teste só confirma que rotas fora de
+        # /localidades ainda respeitam algum teto.
+        monkeypatch.setattr("backend.middleware.rate_limiter.RATE_LIMIT_ENABLED", True)
+        respostas = [client.get("/api/v1/health").status_code for _ in range(35)]
+        assert 429 in respostas
