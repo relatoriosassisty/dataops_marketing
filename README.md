@@ -4,6 +4,16 @@ aplicação para consulta, geração de listas e enriquecimento de contatos, com
 
 esta versão web está em preparação para produção. a branch `web/preparacao-producao` reúne a base que receberá as correções e validações necessárias antes da publicação.
 
+## qual branch usar
+
+| branch | situação |
+| --- | --- |
+| `web/preparacao-producao` | versão web, branch principal do repositório. **ainda faltam alterações e integrações para que o deploy no railway possa ser feito**; não está pronta para publicação. |
+| `local/uso-provisorio-upgrade` | **versão mais corrigida para uso local provisório.** é a que deve ser usada e distribuída no dia a dia. |
+| `local/uso-provisorio` | versão local **legada**, sem o upgrade. mantida apenas como histórico e referência. |
+
+as correções e melhorias recentes (consulta por profissão mais rápida, barra de progresso, distribuição por estado, "sem meta") estão na branch `local/uso-provisorio-upgrade` e ainda não foram trazidas para esta.
+
 o repositório reúne frontend e backend em uma estrutura única, com configurações independentes e documentação para desenvolvimento, validação e publicação.
 
 ## estrutura do projeto
