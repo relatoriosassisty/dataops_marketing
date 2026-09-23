@@ -7,16 +7,14 @@ Um programa para gerar listas de contatos e fazer enriquecimento de
 CPFs/telefones, direto no seu computador.
 
 
-COMO INSTALAR
--------------
+COMO ABRIR
+----------
 1. Copie o arquivo "DataopsMarketing.exe" para o seu computador
    (pode deixar na Área de Trabalho ou em Downloads).
-2. Dê dois cliques nele.
-3. Na primeira vez, vai aparecer uma tela pedindo para instalar.
-   Clique em "Instalar e abrir" e aguarde.
-4. O programa cria um atalho na Área de Trabalho e abre sozinho.
+2. Dê dois cliques nele sempre que quiser usar o programa.
 
-Da próxima vez, use esse atalho para abrir o programa.
+Não há instalação: o programa abre direto, sem criar atalhos nem
+copiar arquivos para outras pastas.
 
 
 PRIMEIRO ACESSO

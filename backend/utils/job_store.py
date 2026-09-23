@@ -44,6 +44,7 @@ def criar_job(filtros: dict) -> str:
             "filtros":   filtros,
             "resultado": None,
             "erro":      None,
+            "progresso": None,   # {"coletados": int, "meta": int | None}
         }
     return job_id
 

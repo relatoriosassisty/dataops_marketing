@@ -121,6 +121,10 @@ def rate_limit_middleware(app: Flask) -> None:
         # isso esgotava a cota e fazia cidades "sumirem" da tela sem aviso.
         if request.method == "GET" and request.path.startswith("/api/v1/localidades/"):
             return None
+        # A barra de progresso do levantamento consulta o job a cada segundo
+        # (só lê memória, não toca o banco) — 60/min estouraria o limite.
+        if request.method == "GET" and request.path.startswith("/api/v1/consulta/contagem/job/"):
+            return None
         result = limiter.check(request.remote_addr or "unknown")
         g.rate_limit_info = result
         if not result["allowed"]:

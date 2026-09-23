@@ -5,6 +5,7 @@
 
 import api from './api';
 import { IS_MOCK, mockContagem, mockGerarLista } from './mockData';
+import { aguardarJob } from '../utils/progresso';
 
 export const consultaService = {
   /**
@@ -26,14 +27,22 @@ export const consultaService = {
 
   /**
    * Apenas contagem — não retorna dados pessoais.
+   * Roda em segundo plano no backend e informa o andamento por `onProgresso`
+   * ({ coletados, meta }); `meta` nulo = sem total definido.
    */
-  async contagem(filtros) {
+  async contagem(filtros, onProgresso) {
     if (IS_MOCK) {
-      await new Promise((r) => setTimeout(r, 1200));
+      for (const coletados of [0, 0.3, 0.6, 0.9]) {
+        onProgresso?.({ coletados: Math.round((filtros.quantidade ?? 1000) * coletados), meta: filtros.quantidade ?? 1000 });
+        await new Promise((r) => setTimeout(r, 300));
+      }
       return mockContagem(filtros);
     }
-    const { data } = await api.post('/api/v1/consulta/contagem', filtros);
-    return data;
+    return aguardarJob({
+      iniciar: async () => (await api.post('/api/v1/consulta/contagem/iniciar', filtros)).data.job_id,
+      consultar: async (jobId) => (await api.get(`/api/v1/consulta/contagem/job/${jobId}`)).data,
+      onProgresso,
+    });
   },
 
   /**

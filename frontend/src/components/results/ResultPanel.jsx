@@ -4,14 +4,17 @@
  */
 
 import Spinner from '../ui/Spinner';
+import ProgressoConsulta from '../ui/ProgressoConsulta';
 
-export default function ResultPanel({ estado, dados, onDownload, onLimpar }) {
+export default function ResultPanel({ estado, dados, onDownload, onLimpar, contagemEmAndamento, progresso, inicio }) {
   if (estado === 'idle') return null;
 
   if (estado === 'carregando') {
     return (
       <div className="card-padrao mt-4">
-        <Spinner mensagem="Consultando o banco de dados..." />
+        {contagemEmAndamento
+          ? <ProgressoConsulta progresso={progresso} inicio={inicio} />
+          : <Spinner mensagem="Consultando o banco de dados..." />}
       </div>
     );
   }

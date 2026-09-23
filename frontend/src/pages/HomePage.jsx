@@ -15,6 +15,8 @@ export default function HomePage() {
   const [resultadoEstado, setResultadoEstado] = useState('idle'); // idle | carregando | contagem | pronto | erro
   const [resultadoDados, setResultadoDados] = useState(null);
   const [carregando, setCarregando] = useState(null); // null | 'contagem' | 'gerar'
+  const [progresso, setProgresso] = useState(null); // { coletados, meta } do levantamento em andamento
+  const [inicioConsulta, setInicioConsulta] = useState(null);
   const [toast, setToast] = useState(null);
   const [resultadoToken, setResultadoToken] = useState(null);
   const [aba, setAba] = useState('gerador'); // 'gerador' | 'enriquecimento'
@@ -29,8 +31,10 @@ export default function HomePage() {
     setResultadoEstado('carregando');
     setResultadoDados(null);
     setResultadoToken(null);
+    setProgresso(null);
+    setInicioConsulta(Date.now());
     try {
-      const dados = await consultaService.contagem(payload);
+      const dados = await consultaService.contagem(payload, setProgresso);
       setResultadoEstado('contagem');
       setResultadoDados(dados);
       setResultadoToken(dados.resultado_token ?? null);
@@ -195,6 +199,9 @@ export default function HomePage() {
             <ResultPanel
               estado={resultadoEstado}
               dados={resultadoDados}
+              contagemEmAndamento={carregando === 'contagem'}
+              progresso={progresso}
+              inicio={inicioConsulta}
               onDownload={handleDownload}
               onLimpar={handleLimpar}
             />

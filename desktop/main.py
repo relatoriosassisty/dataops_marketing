@@ -1,11 +1,10 @@
-"""Aplicativo Windows: instalação, conexão e inicialização sem terminal."""
+"""Aplicativo Windows: conexão e inicialização sem terminal."""
 import ctypes
 import json
 import logging
 import os
 from pathlib import Path
 import queue
-import shutil
 import subprocess
 import sys
 import threading
@@ -50,51 +49,15 @@ from desktop.settings import apply_settings, data_dir, load_settings, save_setti
 from desktop.server import LocalServer, resource_root
 
 
-def install_location():
-    return Path(os.environ["LOCALAPPDATA"]) / "Programs" / "DataopsMarketing" / "DataopsMarketing.exe"
-
-
-def install_application():
-    target = install_location()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_suffix(".new")
-    shutil.copy2(sys.executable, temporary)
-    temporary.replace(target)
-    env = os.environ.copy()
-    env["DATAOPS_EXE"] = str(target)
-    # Caminho transmitido por variável, sem interpolá-lo como código PowerShell.
-    script = """$ErrorActionPreference='Stop'
-$shell=New-Object -ComObject WScript.Shell
-foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {
-  $link=$shell.CreateShortcut((Join-Path $folder 'Dataops Marketing.lnk'))
-  $link.TargetPath=$env:DATAOPS_EXE
-  $link.WorkingDirectory=Split-Path $env:DATAOPS_EXE
-  $link.IconLocation=$env:DATAOPS_EXE+',0'
-  $link.Description='Dataops Marketing - edição local'
-  $link.Save()
-}
-"""
-    powershell = Path(os.environ["WINDIR"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
-    subprocess.run([str(powershell), "-NoProfile", "-NonInteractive", "-Command", script],
-                   check=True, env=env, creationflags=subprocess.CREATE_NO_WINDOW,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return target
-
-
-def launch_installed(path, *args):
-    subprocess.Popen([str(path), *args], cwd=str(path.parent), creationflags=subprocess.CREATE_NO_WINDOW)
-
-
 class Window:
-    def __init__(self, root, installing=False):
+    def __init__(self, root):
         self.root = root
         self.server = LocalServer()
         self.events = queue.Queue()
         self.busy = False
         self.lock_file = None
-        self.installing = installing
         root.title("Dataops Marketing · versão local")
-        root.geometry("560x300" if installing else "560x460")
+        root.geometry("560x460")
         root.resizable(False, False)
         root.configure(bg="#f5f3fa")
         icon = resource_root() / "desktop" / "app.ico"
@@ -113,39 +76,33 @@ class Window:
         self.status = tk.StringVar(value="Pronto para configurar a conexão.")
         self.fields = {}
         self.entries = []
-        if installing:
-            ttk.Label(frame, text="Instale o aplicativo e crie um atalho na área de trabalho.\nAs dependências já estão incluídas neste pacote.").pack(anchor="w", pady=8)
-            self.action = ttk.Button(frame, text="Instalar e abrir", command=self.install)
-            self.action.pack(fill="x", pady=14)
-            self.status.set("Não é necessário instalar Python ou Node.")
-        else:
-            ttk.Label(frame, text="Informe o usuário e a senha do banco fornecidos pela sua equipe.").pack(anchor="w", pady=(0, 10))
-            form = ttk.Frame(frame)
-            form.pack(fill="x")
-            defaults = {"user": "", "password": ""}
-            saved = None
-            try:
-                saved = load_settings()
-                if saved:
-                    defaults.update(saved)
-            except Exception:
-                self.status.set("Não foi possível ler a conexão salva. Informe os dados novamente.")
-            labels = [("user", "Usuário do banco"), ("password", "Senha do banco")]
-            for row, (key, label) in enumerate(labels):
-                ttk.Label(form, text=label).grid(row=row, column=0, sticky="w", pady=6)
-                var = tk.StringVar(value=str(defaults[key]))
-                entry = ttk.Entry(form, textvariable=var, width=29, show="•" if "password" in key else "")
-                entry.grid(row=row, column=1, sticky="ew", padx=(12, 0), pady=6)
-                self.fields[key] = var
-                self.entries.append(entry)
-            form.columnconfigure(1, weight=1)
-            ttk.Label(frame, text="A conexão é salva com proteção do Windows neste usuário.\nNenhum usuário da aplicação é necessário.", foreground="#77668e").pack(anchor="w", pady=12)
-            self.action = ttk.Button(frame, text="Conectar e abrir", command=self.connect)
-            self.action.pack(fill="x", pady=(8, 4))
-            self.configure_button = ttk.Button(frame, text="Alterar conexão", command=self.reconfigure, state="disabled")
-            self.configure_button.pack(fill="x", pady=4)
-            if saved and "--configure" not in sys.argv:
-                root.after(400, self.connect)
+        ttk.Label(frame, text="Informe o usuário e a senha do banco fornecidos pela sua equipe.").pack(anchor="w", pady=(0, 10))
+        form = ttk.Frame(frame)
+        form.pack(fill="x")
+        defaults = {"user": "", "password": ""}
+        saved = None
+        try:
+            saved = load_settings()
+            if saved:
+                defaults.update(saved)
+        except Exception:
+            self.status.set("Não foi possível ler a conexão salva. Informe os dados novamente.")
+        labels = [("user", "Usuário do banco"), ("password", "Senha do banco")]
+        for row, (key, label) in enumerate(labels):
+            ttk.Label(form, text=label).grid(row=row, column=0, sticky="w", pady=6)
+            var = tk.StringVar(value=str(defaults[key]))
+            entry = ttk.Entry(form, textvariable=var, width=29, show="•" if "password" in key else "")
+            entry.grid(row=row, column=1, sticky="ew", padx=(12, 0), pady=6)
+            self.fields[key] = var
+            self.entries.append(entry)
+        form.columnconfigure(1, weight=1)
+        ttk.Label(frame, text="A conexão é salva com proteção do Windows neste usuário.\nNenhum usuário da aplicação é necessário.", foreground="#77668e").pack(anchor="w", pady=12)
+        self.action = ttk.Button(frame, text="Conectar e abrir", command=self.connect)
+        self.action.pack(fill="x", pady=(8, 4))
+        self.configure_button = ttk.Button(frame, text="Alterar conexão", command=self.reconfigure, state="disabled")
+        self.configure_button.pack(fill="x", pady=4)
+        if saved and "--configure" not in sys.argv:
+            root.after(400, self.connect)
         ttk.Label(frame, textvariable=self.status, wraplength=500).pack(anchor="w", pady=10)
         self.progress = ttk.Progressbar(frame, mode="indeterminate")
         self.progress.pack(fill="x")
@@ -182,12 +139,9 @@ class Window:
                     entry.configure(state="normal")
                 self.status.set("Não foi possível concluir. Confira os dados e tente novamente.")
                 # Não exibe parâmetros de conexão ou senhas em mensagens de erro.
-                if self.installing:
-                    message = "Feche uma versão já aberta e tente novamente. Confira se sua conta pode instalar programas na pasta local."
-                else:
-                    message = "Confira usuário e senha do banco. Verifique também a rede, VPN e a liberação de acesso ao banco."
-                    if isinstance(error, ValueError):
-                        message = str(error)
+                message = "Confira usuário e senha do banco. Verifique também a rede, VPN e a liberação de acesso ao banco."
+                if isinstance(error, ValueError):
+                    message = str(error)
                 try:
                     messagebox.showerror("Não foi possível continuar", message, parent=self.root)
                 except tk.TclError:
@@ -199,12 +153,6 @@ class Window:
                 self.root.after(100, self.poll)
         except tk.TclError:
             pass
-
-    def install(self):
-        def installed(path):
-            launch_installed(path)
-            self.root.destroy()
-        self.work(install_application, installed, "Instalando o aplicativo e criando os atalhos…")
 
     def connect(self):
         settings = {key: var.get() for key, var in self.fields.items()}
@@ -293,13 +241,11 @@ def main():
             Path(report).write_text(traceback.format_exc(), encoding="utf-8")
             raise
         return
-    installing = getattr(sys, "frozen", False) and Path(sys.executable).resolve() != install_location().resolve()
-    if not installing:
-        directory = data_dir()
-        directory.mkdir(parents=True, exist_ok=True)
-        # pythonw e executáveis sem console precisam de destinos para logging.
-        sys.stderr = open(directory / "launcher.log", "a", encoding="utf-8", buffering=1)
-        sys.stdout = sys.stderr
+    directory = data_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    # pythonw e executáveis sem console precisam de destinos para logging.
+    sys.stderr = open(directory / "launcher.log", "a", encoding="utf-8", buffering=1)
+    sys.stdout = sys.stderr
     root = tk.Tk()
 
     def _on_callback_error(exc_type, exc_value, exc_tb):
@@ -317,23 +263,22 @@ def main():
             pass
 
     root.report_callback_exception = _on_callback_error
-    window = Window(root, installing=installing)
-    if not installing:
-        import msvcrt
-        lock = open(data_dir() / "app.lock", "a+b")
-        try:
-            lock.seek(0)
-            if not lock.read(1):
-                lock.write(b"0")
-                lock.flush()
-            lock.seek(0)
-            msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
-        except OSError:
-            lock.close()
-            messagebox.showinfo("Dataops Marketing", "A aplicação já está aberta. Use a janela existente.", parent=root)
-            root.destroy()
-            return
-        window.lock_file = lock
+    window = Window(root)
+    import msvcrt
+    lock = open(data_dir() / "app.lock", "a+b")
+    try:
+        lock.seek(0)
+        if not lock.read(1):
+            lock.write(b"0")
+            lock.flush()
+        lock.seek(0)
+        msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        lock.close()
+        messagebox.showinfo("Dataops Marketing", "A aplicação já está aberta. Use a janela existente.", parent=root)
+        root.destroy()
+        return
+    window.lock_file = lock
     root.mainloop()
 
 

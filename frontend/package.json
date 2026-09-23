@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "test": "node --test __tests__/local.test.js __tests__/buildConsultaPayload.test.js",
+    "test": "node --test __tests__/local.test.js __tests__/buildConsultaPayload.test.js __tests__/progresso.test.js",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",

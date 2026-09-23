@@ -16,6 +16,7 @@ Rotas:
 Rotas locais sem autenticação, com registro técnico das operações.
 """
 
+import contextvars
 import datetime
 import io
 import json
@@ -300,6 +301,54 @@ def _resolver_bairros_cidade(cidade: str, item_alta_renda, item_bairros: list[st
     return []
 
 
+class _Progresso:
+    """
+    Acumula quantos registros já foram coletados por um job de levantamento e
+    publica o número no job_store para a barra de progresso da tela.
+
+    `concluido` soma os trechos (partição/CBO) já terminados; `parcial` é o
+    trecho em andamento, atualizado a cada lote vindo do banco.
+    """
+
+    def __init__(self, job_id: str, meta: int | None):
+        self.job_id = job_id
+        self.meta = meta
+        self.concluido = 0
+        self.parcial = 0
+        self._publicar()
+
+    def lote(self, parcial: int) -> None:
+        self.parcial = parcial
+        self._publicar()
+
+    def fim_trecho(self, coletados: int) -> None:
+        self.concluido += coletados
+        self.parcial = 0
+        self._publicar()
+
+    def _publicar(self) -> None:
+        coletados = self.concluido + self.parcial
+        if self.meta:
+            coletados = min(coletados, self.meta)
+        atualizar_job(self.job_id, progresso={"coletados": coletados, "meta": self.meta})
+
+
+# Definido só dentro da thread do job; fora dela (rotas síncronas) fica None.
+_progresso_atual: contextvars.ContextVar["_Progresso | None"] = contextvars.ContextVar(
+    "_progresso_atual", default=None,
+)
+
+
+def _meta_progresso(filtros: dict) -> int | None:
+    """Total esperado para a barra; None quando algum item é 'sem meta' (indeterminado)."""
+    dist = filtros.get("distribuicao") or []
+    if dist:
+        if any(item.get("quantidade") is None for item in dist):
+            return None
+        return sum(int(item["quantidade"]) for item in dist)
+    return int(filtros["quantidade"])
+
+
 def _buscar_ate_quantidade(
     filtros_particao: dict,
     quantidade: int,
@@ -333,8 +382,9 @@ def _buscar_ate_quantidade(
 
     _batch = batch_size if batch_size is not None else BATCH_SIZE_DB
 
+    progresso = _progresso_atual.get()
     df_acumulado = pd.DataFrame()
-    last_id: tuple[int, int] | None = None
+    last_id: tuple[int, ...] | None = None
     esgotou = False
     total_bruto = 0
 
@@ -396,6 +446,9 @@ def _buscar_ate_quantidade(
                     else df_limpo.reset_index(drop=True)
                 )
 
+            if progresso:
+                progresso.lote(min(len(df_acumulado), quantidade))
+
             if len(df_acumulado) >= quantidade:
                 break
 
@@ -409,6 +462,8 @@ def _buscar_ate_quantidade(
             pass
 
     df_final = df_acumulado.head(quantidade) if not df_acumulado.empty else pd.DataFrame()
+    if progresso:
+        progresso.fim_trecho(len(df_final))
     return df_final, esgotou, total_bruto
 
 
@@ -748,6 +803,141 @@ def consultar():
     }), 200
 
 
+def _finalizar_contagem(filtros: dict, resultado: dict, client_ip: str, request_id: str) -> dict:
+    """
+    Aplica a exclusão de CPFs, guarda o levantamento em disco (token) e monta o
+    corpo da resposta de /contagem. Usado pela rota síncrona e pelo job assíncrono.
+
+    Levanta ValueError (exclusão inválida) ou RuntimeError (falha ao salvar).
+    """
+    resultado = _aplicar_exclusao(resultado, filtros.get("exclusao_token"))
+
+    df_saida = resultado["df_saida"]
+    total_disponivel = len(df_saida)
+    quantidade_pedida = filtros["quantidade"]
+
+    token = str(uuid.uuid4())
+    _DIR_TEMP.mkdir(parents=True, exist_ok=True)
+    try:
+        df_saida.to_parquet(_DIR_TEMP / f"{token}.parquet", index=False)
+        meta = {
+            "filtros_aplicados":     descrever_filtros_db(filtros),
+            "total_bruto_buscado":   resultado["total_bruto_buscado"],
+            "total_final":           total_disponivel,
+            "esgotou_base":          resultado["alguma_esgotou"],
+            "tempo_processamento_s": round(resultado["duracao_s"], 2),
+        }
+        (_DIR_TEMP / f"{token}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        raise RuntimeError("Erro ao salvar resultado do levantamento.")
+
+    log_data_access(user=None, role=None,
+                    action="LEVANTAMENTO", filtros=filtros, registros_retornados=total_disponivel,
+                    ip=client_ip, request_id=request_id)
+    registrar_log_consulta(
+        request_id=request_id, endpoint="contagem",
+        ip=client_ip,
+        filtros_json=filtros, quantidade_solicitada=quantidade_pedida,
+        quantidade_retornada=total_disponivel,
+        esgotou_base=resultado["alguma_esgotou"],
+        cache_hit=resultado.get("cache_hit", False),
+        tempo_ms=round(resultado["duracao_s"] * 1000),
+        status_http=200,
+    )
+
+    return {
+        "ok":                    True,
+        "total_disponivel":      total_disponivel,
+        "suficiente":            total_disponivel >= quantidade_pedida,
+        "quantidade_pedida":     quantidade_pedida,
+        "resultado_token":       token,
+        "descricao":             descrever_filtros_db(filtros),
+        "tempo_processamento_s": round(resultado["duracao_s"], 2),
+        "request_id":            request_id,
+    }
+
+
+def _executar_job_contagem(job_id: str, filtros: dict, ip: str) -> None:
+    """Worker do levantamento assíncrono: roda o pipeline publicando o progresso."""
+    atualizar_job(job_id, status="processando")
+    _progresso_atual.set(_Progresso(job_id, _meta_progresso(filtros)))
+    try:
+        resultado = _pipeline_consulta(filtros)
+        corpo = _finalizar_contagem(filtros, resultado, ip, job_id)
+        atualizar_job(job_id, status="concluido", resultado=corpo)
+    except ValueError as ve:
+        registrar_log_consulta(
+            request_id=job_id, endpoint="contagem", ip=ip,
+            filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
+            status_http=400, erro=str(ve),
+        )
+        atualizar_job(job_id, status="erro", erro=str(ve))
+    except Exception as e:
+        log_security_event("LEVANTAMENTO_ERROR", severity="ERROR", subject=None, error=str(e), ip=ip)
+        registrar_log_consulta(
+            request_id=job_id, endpoint="contagem", ip=ip,
+            filtros_json=filtros, quantidade_solicitada=filtros.get("quantidade"),
+            status_http=500, erro=str(e),
+        )
+        atualizar_job(job_id, status="erro", erro="Erro interno ao processar o levantamento.")
+
+
+@consulta_bp.route("/contagem/iniciar", methods=["POST"])
+def contagem_iniciar():
+    """
+    Inicia o levantamento em segundo plano e responde na hora (202) com o job_id.
+    Sem o teto de tempo da rota síncrona; o andamento sai em GET /contagem/job/<id>.
+    """
+    client_ip = _get_client_ip()
+    request_id = getattr(g, "request_id", "")
+
+    try:
+        data = request.get_json(silent=True) or {}
+        filtros = validar_consulta(data)
+    except ValidationError as e:
+        return jsonify({"ok": False, "erro": "Dados inválidos.", "detalhes": e.erros, "request_id": request_id}), 400
+
+    if not filtros.get("quantidade"):
+        filtros["quantidade"] = MAX_REGISTROS_PADRAO
+    filtros["quantidade"] = min(filtros["quantidade"], MAX_REGISTROS_POR_CONSULTA)
+
+    job_id = criar_job(filtros)
+    threading.Thread(
+        target=_executar_job_contagem, args=(job_id, filtros, client_ip), daemon=True,
+    ).start()
+
+    return jsonify({"ok": True, "job_id": job_id, "status": "processando", "request_id": request_id}), 202
+
+
+@consulta_bp.route("/contagem/job/<job_id>", methods=["GET"])
+def contagem_job(job_id: str):
+    """
+    Andamento do levantamento: status, progresso ({coletados, meta}; meta nula =
+    sem total definido) e, ao concluir, o mesmo corpo de POST /contagem.
+    """
+    request_id = getattr(g, "request_id", "")
+
+    if not re.match(r"^[0-9a-f]{32}$", job_id):
+        return jsonify({"ok": False, "erro": "job_id inválido.", "request_id": request_id}), 400
+
+    job = obter_job(job_id)
+    if job is None:
+        return jsonify({"ok": False, "erro": "Levantamento não encontrado ou expirado.", "request_id": request_id}), 404
+
+    resposta = {
+        "ok":         True,
+        "job_id":     job_id,
+        "status":     job["status"],
+        "progresso":  job.get("progresso"),
+        "request_id": request_id,
+    }
+    if job["status"] == "concluido":
+        resposta["resultado"] = job["resultado"]
+    elif job["status"] == "erro":
+        resposta["erro"] = job["erro"]
+    return jsonify(resposta), 200
+
+
 @consulta_bp.route("/contagem", methods=["POST"])
 @with_timeout
 def contagem():
@@ -792,53 +982,13 @@ def contagem():
         return jsonify({"ok": False, "erro": "Erro interno ao processar o levantamento.", "request_id": request_id}), 500
 
     try:
-        resultado = _aplicar_exclusao(resultado, filtros.get("exclusao_token"))
+        corpo = _finalizar_contagem(filtros, resultado, client_ip, request_id)
     except ValueError as ve:
         return jsonify({"ok": False, "erro": str(ve), "request_id": request_id}), 400
+    except RuntimeError as re_:
+        return jsonify({"ok": False, "erro": str(re_), "request_id": request_id}), 500
 
-    df_saida = resultado["df_saida"]
-    total_disponivel = len(df_saida)
-    quantidade_pedida = filtros["quantidade"]
-
-    token = str(uuid.uuid4())
-    _DIR_TEMP.mkdir(parents=True, exist_ok=True)
-    try:
-        df_saida.to_parquet(_DIR_TEMP / f"{token}.parquet", index=False)
-        meta = {
-            "filtros_aplicados":     descrever_filtros_db(filtros),
-            "total_bruto_buscado":   resultado["total_bruto_buscado"],
-            "total_final":           total_disponivel,
-            "esgotou_base":          resultado["alguma_esgotou"],
-            "tempo_processamento_s": round(resultado["duracao_s"], 2),
-        }
-        (_DIR_TEMP / f"{token}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        return jsonify({"ok": False, "erro": "Erro ao salvar resultado do levantamento.", "request_id": request_id}), 500
-
-    log_data_access(user=None, role=None,
-                    action="LEVANTAMENTO", filtros=filtros, registros_retornados=total_disponivel,
-                    ip=client_ip, request_id=request_id)
-    registrar_log_consulta(
-        request_id=request_id, endpoint="contagem",
-        ip=client_ip,
-        filtros_json=filtros, quantidade_solicitada=quantidade_pedida,
-        quantidade_retornada=total_disponivel,
-        esgotou_base=resultado["alguma_esgotou"],
-        cache_hit=resultado.get("cache_hit", False),
-        tempo_ms=round(resultado["duracao_s"] * 1000),
-        status_http=200,
-    )
-
-    return jsonify({
-        "ok":                    True,
-        "total_disponivel":      total_disponivel,
-        "suficiente":            total_disponivel >= quantidade_pedida,
-        "quantidade_pedida":     quantidade_pedida,
-        "resultado_token":       token,
-        "descricao":             descrever_filtros_db(filtros),
-        "tempo_processamento_s": round(resultado["duracao_s"], 2),
-        "request_id":            request_id,
-    }), 200
+    return jsonify(corpo), 200
 
 
 @consulta_bp.route("/gerar", methods=["POST"])
