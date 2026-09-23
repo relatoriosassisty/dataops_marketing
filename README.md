@@ -2,7 +2,15 @@
 
 edição provisória para consulta, geração de listas e enriquecimento de contatos no próprio computador. a interface abre diretamente no gerador, sem login, cadastro de usuários, senhas, limites por conta ou controle financeiro.
 
-esta edição está na branch `local/uso-provisorio`. a versão web permanece em `web/preparacao-producao`.
+esta edição está na branch `local/uso-provisorio-upgrade`, a versão mais corrigida para uso local provisório.
+
+## qual branch usar
+
+| branch | situação |
+| --- | --- |
+| `local/uso-provisorio-upgrade` | **versão mais corrigida para uso local provisório.** é a que deve ser usada e distribuída. reúne as correções mais recentes: consulta por profissão (cbo) muito mais rápida, barra de progresso no levantamento, distribuição de quantidade por estado, opção "sem meta" e executável que abre sem instalação. |
+| `local/uso-provisorio` | versão local **legada**, sem o upgrade. mantida apenas como histórico e referência; não recebe as correções acima. |
+| `web/preparacao-producao` | versão web, branch principal do repositório. **ainda faltam alterações e integrações para o deploy no railway**; não está pronta para publicação. |
 
 ## funcionamento
 

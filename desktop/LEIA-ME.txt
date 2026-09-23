@@ -32,6 +32,38 @@ Da próxima vez que você abrir o programa, ele já vai lembrar
 esses dados e conectar sozinho, sem pedir de novo.
 
 
+COMO GERAR UMA LISTA
+---------------------
+1. Escolha os filtros (estado, cidade, bairro, profissão, gênero,
+   idade, telefone etc.) e a quantidade desejada.
+2. Clique em "Levantamento". Uma barra mostra quantos registros já
+   foram encontrados e há quanto tempo a busca está rodando.
+3. Quando terminar, confira quantos registros estão disponíveis e
+   clique em "Gerar Lista". O arquivo .xlsx é baixado sozinho.
+
+Consultas muito amplas (muitos estados ou muitas profissões) podem
+levar alguns minutos. Se o banco tiver menos registros do que você
+pediu, a busca termina antes de a barra chegar a 100% - isso é normal.
+
+
+NOVIDADES DESTA VERSÃO
+-----------------------
+- Barra de progresso durante o levantamento.
+- Consultas por profissão (CBO) muito mais rápidas.
+- Distribuição da quantidade por estado, além de cidade e bairro.
+- Opção "Sem meta" em estado, cidade e bairro: traz tudo o que
+  estiver disponível, sem número fixo.
+- Gênero: opção "Distribuição exata (M/F)" para definir a proporção
+  entre masculino e feminino; sem ela, pega o que houver de cada um.
+- Exclusão de CPFs já obtidos, enviando um arquivo CSV/TXT.
+- Quantidade máxima por lista de 500.000 registros.
+- A lista de profissões agora fecha ao clicar fora dela.
+- O programa não precisa mais ser instalado: abre direto do arquivo.
+  Se você usou uma versão anterior que instalava, pode apagar o
+  atalho antigo da Área de Trabalho e a pasta
+  %LOCALAPPDATA%\Programs\DataopsMarketing.
+
+
 SE PRECISAR TROCAR USUÁRIO OU SENHA
 -------------------------------------
 Na tela do programa, clique no botão "Alterar conexão" e
