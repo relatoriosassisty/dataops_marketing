@@ -2,8 +2,10 @@
  * components/filters/DistribuicaoQuantidade.jsx
  *
  * Renderizado automaticamente quando há múltiplas cidades ou múltiplos bairros
- * selecionados. Permite definir a quantidade (absoluta) e a proporção (%) de cada
- * item. A soma deve bater com o campo `quantidade` global.
+ * selecionados. Permite definir a quantidade (absoluta) e a proporção (%) de
+ * cada item, ou marcar "sem meta" para pegar tudo que estiver disponível
+ * naquele item (sem número fixo). A soma dos itens com meta deve bater com
+ * o campo `quantidade` global; itens "sem meta" ficam fora dessa conta.
  */
 
 import { useEffect } from 'react';
@@ -12,11 +14,18 @@ import { useEffect } from 'react';
 // helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function equalizar(itens, total) {
-  const base = Math.floor(total / itens.length);
-  const resto = total - base * itens.length;
+const SEM_META = null; // valor sentinela: "pegar tudo disponível", sem número fixo
+
+function equalizar(itens, total, valores = {}) {
+  // Preserva itens marcados "sem meta" — só redistribui os com meta fixa.
+  const comMeta = itens.filter((item) => valores[item] !== SEM_META);
+  const base = comMeta.length ? Math.floor(total / comMeta.length) : 0;
+  const resto = total - base * comMeta.length;
   const novos = {};
-  itens.forEach((item, i) => {
+  itens.forEach((item) => {
+    novos[item] = valores[item] === SEM_META ? SEM_META : 0;
+  });
+  comMeta.forEach((item, i) => {
     novos[item] = base + (i < resto ? 1 : 0);
   });
   return novos;
@@ -26,7 +35,7 @@ function equalizar(itens, total) {
 // componente
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function DistribuicaoQuantidade({ itens, total, valores, onChange, label, semTitulo = false }) {
+export default function DistribuicaoQuantidade({ itens, total, valores, onChange, label, semTitulo = false, rotulos = {} }) {
   // Quando a lista de itens muda → iguala proporcionalmente, preservando
   // valores já existentes para itens que continuam na seleção.
   useEffect(() => {
@@ -43,8 +52,8 @@ export default function DistribuicaoQuantidade({ itens, total, valores, onChange
     const novosItens = itens.filter((item) => !(item in valores));
 
     if (novosItens.length === 0) {
-      // Só removeu itens: re-equaliza tudo
-      onChange(equalizar(itens, total));
+      // Só removeu itens: re-equaliza tudo (preservando os "sem meta")
+      onChange(equalizar(itens, total, valores));
       return;
     }
 
@@ -64,20 +73,28 @@ export default function DistribuicaoQuantidade({ itens, total, valores, onChange
     onChange(novos);
   }, [itens.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const itensSemMeta = itens.filter((item) => valores[item] === SEM_META);
   const soma = itens.reduce((acc, item) => acc + (Number(valores[item]) || 0), 0);
   const diff = total - soma;
-  const ok = diff === 0;
+  // Com algum item "sem meta", a soma dos demais pode ficar abaixo do total
+  // de propósito (o restante vem de quem não tem meta fixa) — só cobra o
+  // total exato quando todos os itens têm meta definida.
+  const ok = itensSemMeta.length > 0 ? diff >= 0 : diff === 0;
 
-  const handleEqualizar = () => onChange(equalizar(itens, total));
+  const handleEqualizar = () => onChange(equalizar(itens, total, valores));
 
   const handleChange = (item, raw) => {
     const v = Math.max(0, parseInt(raw, 10) || 0);
     onChange({ ...valores, [item]: v });
   };
 
+  const toggleSemMeta = (item) => {
+    onChange({ ...valores, [item]: valores[item] === SEM_META ? 0 : SEM_META });
+  };
+
   if (!itens.length) return null;
 
-  const labelCap = label === 'cidade' ? 'Cidade' : 'Bairro';
+  const labelCap = label === 'uf' ? 'Estado' : label === 'cidade' ? 'Cidade' : 'Bairro';
 
   return (
     <div>
@@ -86,7 +103,7 @@ export default function DistribuicaoQuantidade({ itens, total, valores, onChange
         {!semTitulo && (
           <h2 className="section-header mb-0" style={{ fontSize: '0.95rem' }}>
             <i className="bi bi-sliders me-2" style={{ color: 'var(--roxo-primario)' }} />
-            Distribuição por {label}
+            Distribuição por {label === 'uf' ? 'estado' : label}
           </h2>
         )}
         <button
@@ -117,10 +134,14 @@ export default function DistribuicaoQuantidade({ itens, total, valores, onChange
               <th style={{ width: 70, textAlign: 'center', color: 'var(--roxo-escuro)', fontWeight: 600 }}>
                 %
               </th>
+              <th style={{ width: 90, textAlign: 'center', color: 'var(--roxo-escuro)', fontWeight: 600 }}>
+                Sem meta
+              </th>
             </tr>
           </thead>
           <tbody>
             {itens.map((item) => {
+              const semMeta = valores[item] === SEM_META;
               const qty = Number(valores[item]) || 0;
               const pct = total > 0 ? ((qty / total) * 100).toFixed(1) : '0.0';
               return (
@@ -128,37 +149,54 @@ export default function DistribuicaoQuantidade({ itens, total, valores, onChange
                   <td
                     className="align-middle"
                     style={{ paddingLeft: '0.5rem', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                    title={item}
+                    title={rotulos[item] ?? item}
                   >
-                    {item}
+                    {rotulos[item] ?? item}
                   </td>
                   <td>
-                    <input
-                      type="number"
-                      min={0}
-                      max={total}
-                      step={1}
-                      value={qty}
-                      onChange={(e) => handleChange(item, e.target.value)}
-                      className="form-control form-control-sm"
-                      style={{ fontSize: '0.85rem' }}
-                    />
+                    {semMeta ? (
+                      <span style={{ fontSize: '0.8rem', color: 'var(--texto-terciario)', fontStyle: 'italic' }}>
+                        Disponível
+                      </span>
+                    ) : (
+                      <input
+                        type="number"
+                        min={0}
+                        max={total}
+                        step={1}
+                        value={qty}
+                        onChange={(e) => handleChange(item, e.target.value)}
+                        className="form-control form-control-sm"
+                        style={{ fontSize: '0.85rem' }}
+                      />
+                    )}
                   </td>
                   <td className="align-middle text-center">
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        minWidth: 40,
-                        padding: '0.15rem 0.35rem',
-                        borderRadius: 4,
-                        fontSize: '0.78rem',
-                        fontWeight: 600,
-                        background: qty > 0 ? 'var(--roxo-claro, #ede7f6)' : 'var(--fundo-secundario)',
-                        color: qty > 0 ? 'var(--roxo-primario)' : 'var(--texto-terciario)',
-                      }}
-                    >
-                      {pct}%
-                    </span>
+                    {!semMeta && (
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          minWidth: 40,
+                          padding: '0.15rem 0.35rem',
+                          borderRadius: 4,
+                          fontSize: '0.78rem',
+                          fontWeight: 600,
+                          background: qty > 0 ? 'var(--roxo-claro, #ede7f6)' : 'var(--fundo-secundario)',
+                          color: qty > 0 ? 'var(--roxo-primario)' : 'var(--texto-terciario)',
+                        }}
+                      >
+                        {pct}%
+                      </span>
+                    )}
+                  </td>
+                  <td className="align-middle text-center">
+                    <input
+                      type="checkbox"
+                      checked={semMeta}
+                      onChange={() => toggleSemMeta(item)}
+                      style={{ accentColor: 'var(--roxo-primario)' }}
+                      title="Pegar tudo que estiver disponível, sem número fixo"
+                    />
                   </td>
                 </tr>
               );
@@ -182,10 +220,24 @@ export default function DistribuicaoQuantidade({ itens, total, valores, onChange
                   <i className="bi bi-exclamation-circle-fill" style={{ color: 'var(--erro, #c62828)', fontSize: '0.9rem' }} />
                 )}
               </td>
+              <td className="align-middle text-center" style={{ fontSize: '0.75rem', color: 'var(--texto-terciario)' }}>
+                {itensSemMeta.length > 0 && `${itensSemMeta.length} sem meta`}
+              </td>
             </tr>
           </tfoot>
         </table>
       </div>
+
+      {/* Nota informativa: itens sem meta cobrem o restante */}
+      {ok && itensSemMeta.length > 0 && diff > 0 && (
+        <div
+          className="d-flex align-items-center gap-2 p-2 rounded"
+          style={{ background: 'var(--fundo-secundario)', border: '1px solid var(--borda)', fontSize: '0.8rem', color: 'var(--texto-secundario)' }}
+        >
+          <i className="bi bi-info-circle-fill" style={{ color: 'var(--roxo-primario)' }} />
+          {`${diff.toLocaleString('pt-BR')} registros ficam livres para quem está marcado "sem meta" (pegam o que houver disponível).`}
+        </div>
+      )}
 
       {/* Alerta de divergência */}
       {!ok && (

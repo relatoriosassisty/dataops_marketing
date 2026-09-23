@@ -4,7 +4,7 @@
  * Dropdown com seleção por categoria (todos os CBOs do grupo) ou profissão individual.
  */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const GRUPOS = [
   {
@@ -234,6 +234,22 @@ export default function PersonFilters({ valores, onChange }) {
 
   const selecionadas = valores.profissoes || [];
 
+  // Fecha ao clicar fora. Antes usava onBlur, mas os itens de dentro
+  // (checkbox, linha de profissão) não são focáveis — clicar neles não
+  // move o foco de um jeito confiável, então blur ora fechava cedo
+  // demais (cancelando a seleção), ora nunca fechava ao clicar fora.
+  useEffect(() => {
+    if (!aberto) return;
+    const fecharSeForaDoDropdown = (e) => {
+      if (!dropdownRef.current?.contains(e.target)) {
+        setAberto(false);
+        setBusca('');
+      }
+    };
+    document.addEventListener('mousedown', fecharSeForaDoDropdown);
+    return () => document.removeEventListener('mousedown', fecharSeForaDoDropdown);
+  }, [aberto]);
+
   // Estado de seleção de um grupo: 'all' | 'partial' | 'none'
   const estadoGrupo = (g) => {
     const total = g.cbos.length;
@@ -266,13 +282,6 @@ export default function PersonFilters({ valores, onChange }) {
 
   const toggleExpand = (nome) =>
     setExpandidos((v) => ({ ...v, [nome]: !v[nome] }));
-
-  const handleBlur = (e) => {
-    if (!dropdownRef.current?.contains(e.relatedTarget)) {
-      setAberto(false);
-      setBusca('');
-    }
-  };
 
   // Filtra grupos/profissões pela busca
   const gruposFiltrados = busca.trim()
@@ -344,7 +353,43 @@ export default function PersonFilters({ valores, onChange }) {
           })}
         </div>
 
-        {valores.genero === '' && (() => {
+        {valores.genero === '' && (
+          <div className="mt-2 d-flex gap-2">
+            {[
+              { valor: false, label: 'Sem distribuição exata', icone: 'bi-shuffle' },
+              { valor: true, label: 'Distribuição exata (M/F)', icone: 'bi-sliders' },
+            ].map(({ valor, label, icone }) => {
+              const ativo = !!valores.generoExato === valor;
+              return (
+                <button
+                  key={String(valor)}
+                  type="button"
+                  onClick={() => onChange({ generoExato: valor })}
+                  className="btn btn-sm flex-fill"
+                  style={{
+                    background: ativo ? 'var(--roxo-claro, #ede7f6)' : 'var(--fundo-secundario)',
+                    color: ativo ? 'var(--roxo-primario)' : 'var(--texto-secundario)',
+                    border: `1px solid ${ativo ? 'var(--roxo-primario)' : 'var(--borda)'}`,
+                    borderRadius: 'var(--radius-sm)',
+                    fontWeight: 600,
+                    fontSize: '0.78rem',
+                  }}
+                >
+                  <i className={`bi ${icone} me-1`} />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {valores.genero === '' && !valores.generoExato && (
+          <small className="d-block mt-1" style={{ color: 'var(--texto-terciario)' }}>
+            Pega o que houver disponível de cada gênero, sem forçar proporção.
+          </small>
+        )}
+
+        {valores.genero === '' && valores.generoExato && (() => {
           const dist = valores.generoDistribuicao ?? { M: 50, F: 50 };
           const total = valores.quantidade ?? 5000;
           const soma = (dist.M ?? 0) + (dist.F ?? 0);
@@ -453,7 +498,7 @@ export default function PersonFilters({ valores, onChange }) {
       </div>
 
       {/* Profissão (CBO) — dropdown com grupos */}
-      <div className="mb-1" ref={dropdownRef} onBlur={handleBlur}>
+      <div className="mb-1" ref={dropdownRef}>
         <label className="form-label fw-semibold" style={{ color: 'var(--roxo-escuro)' }}>
           Profissão
           {totalSelecionadas > 0 && (
@@ -513,11 +558,12 @@ export default function PersonFilters({ valores, onChange }) {
 
         {/* Painel dropdown */}
         {aberto && (
-          <div style={{
-            position: 'absolute', zIndex: 100, background: '#fff',
-            border: '1.5px solid var(--roxo-primario)', borderRadius: 'var(--radius-sm)',
-            boxShadow: 'var(--shadow-hover)', width: '100%', maxWidth: '480px', marginTop: '4px',
-          }}>
+          <div
+            style={{
+              position: 'absolute', zIndex: 100, background: '#fff',
+              border: '1.5px solid var(--roxo-primario)', borderRadius: 'var(--radius-sm)',
+              boxShadow: 'var(--shadow-hover)', width: '100%', maxWidth: '480px', marginTop: '4px',
+            }}>
             {/* Busca */}
             <div style={{ padding: '0.5rem', borderBottom: '1px solid var(--borda)' }}>
               <input type="text" className="form-control form-control-sm"

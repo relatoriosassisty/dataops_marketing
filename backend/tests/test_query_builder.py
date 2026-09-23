@@ -283,3 +283,22 @@ class TestDescreverFiltros:
         from backend.utils.query_builder import descrever_filtros_db
         result = descrever_filtros_db({**_BASE, "genero": "M", "email": "obrigatorio"})
         assert "|" in result
+
+
+class TestCursorComCbo:
+    _F = {"ufs": ["RS", "SC"], "cbos": ["225125"]}
+
+    def test_cbo_ordena_por_id_do_cbo_primeiro(self):
+        sql, _ = _build(self._F, limite=3000)
+        assert "ORDER BY e.id, lc.ID_MAILING, lc.ID_COMPLEMENT" in sql
+        assert "e.id" in sql.split("FROM")[0]  # _ID_CBO no SELECT
+
+    def test_cbo_cursor_usa_tres_chaves(self):
+        sql, params = _build(self._F, limite=3000, last_id=(10, 20, 30))
+        assert "(e.id, lc.ID_MAILING, lc.ID_COMPLEMENT) > (%s, %s, %s)" in sql
+        assert params[-4:] == [10, 20, 30, 3000]
+
+    def test_sem_cbo_continua_ordenando_por_mailing(self):
+        sql, _ = _build(limite=3000, last_id=(1, 2))
+        assert "ORDER BY lc.ID_MAILING, lc.ID_COMPLEMENT" in sql
+        assert "e.id" not in sql

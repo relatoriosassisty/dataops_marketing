@@ -128,17 +128,23 @@ def _conectar_banco():
     return conn
 
 
-def _executar_query(sql: str, params: list) -> pd.DataFrame:
-    """Executa query e retorna DataFrame. Garante fechamento da conexão."""
-    conn = None
+def _executar_query(sql: str, params: list, conn=None) -> pd.DataFrame:
+    """
+    Executa query e retorna DataFrame.
+
+    Se `conn` for informado, reaproveita essa conexão (não fecha no final —
+    quem passou a conexão é responsável por fechá-la). Sem `conn`, abre e
+    fecha uma conexão nova só para esta chamada, como antes.
+    """
+    conn_propria = conn is None
     try:
-        conn = _conectar_banco()
-        df = pd.read_sql(sql, conn, params=params)
-        return df
+        if conn_propria:
+            conn = _conectar_banco()
+        return pd.read_sql(sql, conn, params=params)
     except Exception:
         raise
     finally:
-        if conn is not None:
+        if conn_propria and conn is not None:
             try:
                 conn.close()
             except Exception:
@@ -332,40 +338,121 @@ def _buscar_ate_quantidade(
     esgotou = False
     total_bruto = 0
 
-    for _ in range(BATCH_MAX_ITERACOES):
-        sql_lote, params_lote = build_query(filtros_banco, limite=_batch, last_id=last_id)
-        df_lote = _executar_query(sql_lote, params_lote)
-        total_bruto += len(df_lote)
+    # Uma conexão só para todos os lotes desta partição — abrir uma conexão
+    # nova por lote (uf/cidade/cbo estreitos costumam precisar de vários
+    # lotes para atingir a quantidade, já que boa parte é descartada na
+    # limpeza) multiplicava o tempo de resposta por handshake + latência de
+    # rede a cada lote, além de aumentar a chance de a conexão cair no meio
+    # de uma consulta longa.
+    conn = _conectar_banco()
+    try:
+        for _ in range(BATCH_MAX_ITERACOES):
+            sql_lote, params_lote = build_query(filtros_banco, limite=_batch, last_id=last_id)
+            # Conexões para o banco remoto às vezes caem no meio de uma
+            # consulta (ex.: "2013 Lost connection to MySQL server during
+            # query") por instabilidade de rede, não por lentidão da
+            # consulta em si (o mesmo lote roda em ~1-2s quando a rede está
+            # estável). Tenta reabrir a conexão até 2 vezes, com uma pequena
+            # espera, antes de desistir do lote.
+            for tentativa in range(3):
+                try:
+                    df_lote = _executar_query(sql_lote, params_lote, conn=conn)
+                    break
+                except mysql.connector.Error as erro_conexao:
+                    if tentativa == 2:
+                        raise
+                    log.warning(
+                        "Conexão perdida durante lote (tentativa %d/3), reconectando: %s",
+                        tentativa + 1, erro_conexao,
+                    )
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    time.sleep(1.5)
+                    conn = _conectar_banco()
+            total_bruto += len(df_lote)
 
-        if df_lote.empty:
-            esgotou = True
-            break
+            if df_lote.empty:
+                esgotou = True
+                break
 
-        # Avança o cursor antes da limpeza Python (usa linhas brutas do banco)
-        if "_ID_MAILING" in df_lote.columns and "_ID_COMPLEMENT" in df_lote.columns:
-            ultimo = df_lote.sort_values(["_ID_MAILING", "_ID_COMPLEMENT"]).iloc[-1]
-            last_id = (int(ultimo["_ID_MAILING"]), int(ultimo["_ID_COMPLEMENT"]))
+            # Avança o cursor antes da limpeza Python (usa linhas brutas do banco)
+            if "_ID_MAILING" in df_lote.columns and "_ID_COMPLEMENT" in df_lote.columns:
+                chaves = ["_ID_MAILING", "_ID_COMPLEMENT"]
+                if "_ID_CBO" in df_lote.columns:
+                    chaves = ["_ID_CBO"] + chaves
+                ultimo = df_lote.sort_values(chaves).iloc[-1]
+                last_id = tuple(int(ultimo[k]) for k in chaves)
 
-        # ── Etapa 2: limpeza e filtros Python ────────────────────────────
-        df_limpo, _ = processar(df_lote, filtros_python)
-        if exclude_cpfs and "CPF" in df_limpo.columns:
-            df_limpo = df_limpo[~df_limpo["CPF"].astype(str).isin(exclude_cpfs)]
-        if not df_limpo.empty:
-            df_acumulado = (
-                pd.concat([df_acumulado, df_limpo], ignore_index=True)
-                if not df_acumulado.empty
-                else df_limpo.reset_index(drop=True)
-            )
+            # ── Etapa 2: limpeza e filtros Python ────────────────────────────
+            df_limpo, _ = processar(df_lote, filtros_python)
+            if exclude_cpfs and "CPF" in df_limpo.columns:
+                df_limpo = df_limpo[~df_limpo["CPF"].astype(str).isin(exclude_cpfs)]
+            if not df_limpo.empty:
+                df_acumulado = (
+                    pd.concat([df_acumulado, df_limpo], ignore_index=True)
+                    if not df_acumulado.empty
+                    else df_limpo.reset_index(drop=True)
+                )
 
-        if len(df_acumulado) >= quantidade:
-            break
+            if len(df_acumulado) >= quantidade:
+                break
 
-        if len(df_lote) < _batch:
-            esgotou = True
-            break
+            if len(df_lote) < _batch:
+                esgotou = True
+                break
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
     df_final = df_acumulado.head(quantidade) if not df_acumulado.empty else pd.DataFrame()
     return df_final, esgotou, total_bruto
+
+
+def _buscar_particao_com_cbos(
+    particao: dict, meta: int, seen_cpfs: set[str],
+) -> tuple[pd.DataFrame, bool, int]:
+    """
+    Busca uma partição (já filtrada por uf/cidade/bairro/gênero) respeitando
+    o teto `meta`. Quando a partição tem mais de um CBO, divide a busca um
+    CBO por vez — mandar vários CBOs juntos num único IN(...) faz o JOIN
+    com a tabela de CBO cair num "Using filesort" que cresce com a
+    quantidade de códigos e pode passar de minutos numa consulta só
+    (medido: 11 CBOs numa partição = mais de 300s e conexão perdida).
+    Usada tanto na busca simples por CBO quanto dentro de cada fatia de
+    'distribuicao' (por UF, cidade ou bairro) — sem isso, selecionar uma
+    categoria inteira de profissão (várias dezenas de CBOs) junto de
+    qualquer distribuição ficava pesado demais.
+    """
+    cbos = particao.get("cbos") or []
+    if len(cbos) <= 1:
+        return _buscar_ate_quantidade(particao, meta, exclude_cpfs=seen_cpfs)
+
+    frames: list[pd.DataFrame] = []
+    esgotou_algum = False
+    bruto_total = 0
+    for cbo in cbos:
+        coletados = sum(len(f) for f in frames)
+        if coletados >= meta:
+            break
+        restante = meta - coletados
+        particao_cbo = {**particao, "cbos": [cbo]}
+        df_p, esgotou_p, bruto_p = _buscar_ate_quantidade(
+            particao_cbo, restante, exclude_cpfs=seen_cpfs, batch_size=3000,
+        )
+        bruto_total += bruto_p
+        if esgotou_p:
+            esgotou_algum = True
+        if not df_p.empty:
+            frames.append(df_p)
+            if "CPF" in df_p.columns:
+                seen_cpfs.update(df_p["CPF"].dropna().astype(str).tolist())
+
+    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    return df, esgotou_algum, bruto_total
 
 
 def _pipeline_consulta(filtros: dict) -> dict:
@@ -419,18 +506,22 @@ def _pipeline_consulta(filtros: dict) -> dict:
         seen_cpfs: set[str] = set()
 
         for item in dist_items:
+            uf_i          = str(item.get("uf", "")).strip().upper()
             cidade_i      = str(item.get("cidade", "")).strip().upper()
             item_bairros  = item.get("bairros", [])   # lista (novo schema)
             item_ar       = item.get("alta_renda")    # None = herda global
             genero_i      = str(item.get("genero", "AMBOS")).strip().upper()
-            qtd_i         = int(item["quantidade"])
+            # quantidade ausente = sem meta fixa: busca tudo disponível até o teto.
+            qtd_i         = int(item["quantidade"]) if item.get("quantidade") is not None else MAX_REGISTROS_POR_CONSULTA
 
             particao = {**filtros}
+            if uf_i:
+                particao["ufs"] = [uf_i]
             particao["cidades"] = [cidade_i] if cidade_i else (filtros.get("cidades") or [])
             particao["bairros"] = _resolver_bairros_cidade(cidade_i, item_ar, item_bairros, filtros)
             particao["genero"]  = genero_i
 
-            df_p, esgotou, bruto = _buscar_ate_quantidade(particao, qtd_i, exclude_cpfs=seen_cpfs)
+            df_p, esgotou, bruto = _buscar_particao_com_cbos(particao, qtd_i, seen_cpfs)
             total_bruto_buscado += bruto
             if esgotou:
                 alguma_esgotou = True
@@ -443,34 +534,48 @@ def _pipeline_consulta(filtros: dict) -> dict:
         total_final = len(df)
 
     elif cbos_lista:
-        # Um CBO por vez com INNER JOIN — batch 3000 alinhado ao BATCH_SIZE_DB padrão.
-        _batch_cbo = 3000
-        frames_cbo: list[pd.DataFrame] = []
+        # Um CBO por vez (ver _buscar_particao_com_cbos) — evita o "Using
+        # filesort" pesado de juntar vários CBOs num só JOIN. (Dividir por
+        # UF também foi tentado e medido: ficou mais lento no total — 84s
+        # vs 51s no mesmo teste com 6 UFs — porque o overhead de abrir uma
+        # conexão nova por UF pesa mais do que o ganho de cada consulta
+        # individual ser mais leve. Quem resolve o timeout em consultas
+        # amplas é o teto maior em API_QUERY_TIMEOUT/DB_READ_TIMEOUT, não
+        # fatiar por UF.)
+        seen_cpfs_cbo: set[str] = set()
+        df, alguma_esgotou, total_bruto_buscado = _buscar_particao_com_cbos(
+            filtros, filtros["quantidade"], seen_cpfs_cbo,
+        )
+        total_final = len(df)
+
+    elif filtros.get("genero_distribuicao"):
+        # Proporção M/F explícita (sem cidade/bairro em fatias): busca cada
+        # gênero separadamente, na cota calculada pela porcentagem.
+        pct = filtros["genero_distribuicao"]
+        meta_total = filtros["quantidade"]
+        meta_m = round(meta_total * pct["M"] / 100)
+        meta_f = meta_total - meta_m
+        frames_genero: list[pd.DataFrame] = []
         alguma_esgotou = False
         total_bruto_buscado = 0
-        seen_cpfs_cbo: set[str] = set()
-        meta_cap = filtros["quantidade"]
+        seen_cpfs_genero: set[str] = set()
 
-        for cbo in cbos_lista:
-            ja_coletados = sum(len(f) for f in frames_cbo)
-            if ja_coletados >= meta_cap:
-                break
-            restante = meta_cap - ja_coletados
-            filtros_cbo = {**filtros, "cbos": [cbo], "quantidade": restante}
-            df_p, esgotou_p, bruto_p = _buscar_ate_quantidade(
-                filtros_cbo, restante,
-                exclude_cpfs=seen_cpfs_cbo,
-                batch_size=_batch_cbo,
+        for genero_g, meta_g in (("M", meta_m), ("F", meta_f)):
+            if meta_g <= 0:
+                continue
+            filtros_g = {**filtros, "genero": genero_g}
+            df_g, esgotou_g, bruto_g = _buscar_ate_quantidade(
+                filtros_g, meta_g, exclude_cpfs=seen_cpfs_genero
             )
-            total_bruto_buscado += bruto_p
-            if esgotou_p:
+            total_bruto_buscado += bruto_g
+            if esgotou_g:
                 alguma_esgotou = True
-            if not df_p.empty:
-                frames_cbo.append(df_p)
-                if "CPF" in df_p.columns:
-                    seen_cpfs_cbo.update(df_p["CPF"].dropna().astype(str).tolist())
+            if not df_g.empty:
+                frames_genero.append(df_g)
+                if "CPF" in df_g.columns:
+                    seen_cpfs_genero.update(df_g["CPF"].dropna().astype(str).tolist())
 
-        df = pd.concat(frames_cbo, ignore_index=True) if frames_cbo else pd.DataFrame()
+        df = pd.concat(frames_genero, ignore_index=True) if frames_genero else pd.DataFrame()
         total_final = len(df)
 
     else:

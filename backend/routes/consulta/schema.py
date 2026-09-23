@@ -10,6 +10,8 @@ Parâmetros aceitos e suas etapas de processamento:
     cidades       obrigatório  lista de nomes de cidades (máx 50)
     bairros       opcional     lista de bairros (máx 100)
     genero        opcional     M | F | MASCULINO | FEMININO | AMBOS
+    genero_distribuicao  opcional  {M, F} percentuais somando 100 —
+                  só se aplica quando genero=AMBOS e não há 'distribuicao'.
     idade_min     opcional     inteiro 18–120
     idade_max     opcional     inteiro 18–120
     email         opcional     obrigatorio | nao | preferencial | nao_filtrar
@@ -21,8 +23,10 @@ Parâmetros aceitos e suas etapas de processamento:
     tipo_telefone opcional     movel | fixo | ambos  (default: movel)
 
   FATIAS (opcional):
-    distribuicao  lista de {cidade?, bairro?, genero?, quantidade}
+    distribuicao  lista de {uf?, cidade?, bairro?, genero?, quantidade?}
                   O backend executa cada fatia e devolve tudo merged.
+                  quantidade ausente/nula = sem meta fixa, pega tudo
+                  disponível para aquela fatia (até o teto absoluto).
 
   QUANTIDADE:
     quantidade    opcional     inteiro >= 1  (teto por role aplicado na rota)
@@ -162,6 +166,28 @@ def validar_consulta(data: dict) -> dict:
         erros.append(f"Gênero inválido: '{genero}'. Use: {', '.join(sorted(GENEROS_VALIDOS))}")
     resultado["genero"] = genero if genero in GENEROS_VALIDOS else "AMBOS"
 
+    # ── Proporção M/F (opcional, só faz sentido com gênero ambos) ─
+    # Distribui a quantidade entre masculino e feminino nessa proporção,
+    # em vez de deixar o banco decidir livremente.
+    genero_dist_raw = data.get("genero_distribuicao")
+    genero_distribuicao = None
+    if genero_dist_raw is not None:
+        if not isinstance(genero_dist_raw, dict):
+            erros.append("'genero_distribuicao' deve ser um objeto {M, F}.")
+        else:
+            try:
+                pct_m = int(genero_dist_raw.get("M", 0))
+                pct_f = int(genero_dist_raw.get("F", 0))
+            except (ValueError, TypeError):
+                erros.append("'genero_distribuicao': M e F devem ser inteiros.")
+                pct_m = pct_f = None
+            if pct_m is not None:
+                if pct_m < 0 or pct_f < 0 or pct_m + pct_f != 100:
+                    erros.append("'genero_distribuicao': M + F deve somar 100.")
+                else:
+                    genero_distribuicao = {"M": pct_m, "F": pct_f}
+    resultado["genero_distribuicao"] = genero_distribuicao
+
     # ── Idade ────────────────────────────────────────────────
     idade_min = data.get("idade_min")
     idade_max = data.get("idade_max")
@@ -283,13 +309,17 @@ def validar_consulta(data: dict) -> dict:
     distribuicao = data.get("distribuicao")
     if distribuicao is not None:
         if not isinstance(distribuicao, list):
-            erros.append("'distribuicao' deve ser uma lista de objetos {cidade?, bairro?, genero?, quantidade}.")
+            erros.append("'distribuicao' deve ser uma lista de objetos {uf?, cidade?, bairro?, genero?, quantidade?}.")
             distribuicao = None
         else:
             dist_limpa = []
             for item in distribuicao[:200]:
                 if not isinstance(item, dict):
                     erros.append("Cada item de 'distribuicao' deve ser um objeto.")
+                    continue
+                uf_item = str(item.get("uf", "")).strip().upper()
+                if uf_item and uf_item not in UFS_VALIDAS:
+                    erros.append(f"'distribuicao': UF inválida '{uf_item}'.")
                     continue
                 cidade_item = str(item.get("cidade", "")).strip().upper()
                 # bairro: string legada (compatibilidade) ou bairros: lista (novo)
@@ -312,16 +342,22 @@ def validar_consulta(data: dict) -> dict:
                 if genero_item is None:
                     erros.append(f"'distribuicao': gênero inválido '{genero_raw}'. Use M, F ou AMBOS.")
                     continue
-                qtd_item = item.get("quantidade")
-                try:
-                    qtd_item = int(qtd_item)
-                    if qtd_item < 1:
-                        erros.append("'distribuicao': quantidade deve ser >= 1.")
+                # quantidade ausente/nula = "sem limite definido": a fatia
+                # busca tudo que estiver disponível, sem meta fixa.
+                qtd_raw = item.get("quantidade")
+                if qtd_raw is None or qtd_raw == "":
+                    qtd_item = None
+                else:
+                    try:
+                        qtd_item = int(qtd_raw)
+                        if qtd_item < 1:
+                            erros.append("'distribuicao': quantidade deve ser >= 1.")
+                            continue
+                    except (ValueError, TypeError):
+                        erros.append("'distribuicao': quantidade deve ser um inteiro.")
                         continue
-                except (ValueError, TypeError):
-                    erros.append("'distribuicao': quantidade deve ser um inteiro.")
-                    continue
                 dist_limpa.append({
+                    "uf":          uf_item,
                     "cidade":      cidade_item,
                     "bairros":     bairros_item,
                     "alta_renda":  alta_renda_item,

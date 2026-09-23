@@ -81,8 +81,13 @@ DB_CONFIG = _DB_CONFIG.copy()
 DB_POOL_SIZE = 5
 DB_POOL_NAME = "api_pool"
 
-# Timeout de query na API (segundos) — segurança extra contra full scans
-API_QUERY_TIMEOUT = int(os.environ.get("API_QUERY_TIMEOUT", "120"))
+# Timeout de query na API (segundos) — segurança extra contra full scans.
+# Consultas amplas (vários estados sem cidade, com CBO) podem legitimamente
+# passar de 120s: o JOIN com a tabela de CBO cai num "Using filesort" que
+# precisa materializar e ordenar todo o conjunto casado antes do LIMIT
+# cortar o lote, e isso cresce com o número de UFs. 120s já cortava
+# consultas de 6+ estados no meio, mesmo sem nenhum problema de rede.
+API_QUERY_TIMEOUT = int(os.environ.get("API_QUERY_TIMEOUT", "300"))
 
 # ── Criptografia de dados sensíveis nos logs ──────────────────
 MASK_CPF = True           # mascara CPF nos logs (***.***.***-XX)

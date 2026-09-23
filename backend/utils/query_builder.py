@@ -105,6 +105,8 @@ def build_query(
     if usar_cbo:
         # Inclui descrição da profissão quando CBO foi solicitado
         select_campos.append(f"d.{c['atividade']}          AS ATIVIDADE")
+    if cbos_solicitados:
+        select_campos.append("e.id                        AS _ID_CBO")  # cursor interno
 
     select_str = ",\n    ".join(select_campos)
 
@@ -201,9 +203,16 @@ def build_query(
     # 9. Cursor de paginação — usa chave composta (ID_MAILING, ID_COMPLEMENT)
     #    para garantir que nenhuma linha seja pulada entre lotes consecutivos.
     #    MySQL usa o índice da PK para essa comparação de tupla.
+    # Com CBO específico o cursor começa por e.id (índice idx_cbo): ordenar por
+    # lc.ID_MAILING forçava o MySQL a ordenar todas as linhas do CBO a cada lote
+    # (medido: 46s por lote de 3000, contra ~1s ordenando por e.id).
+    cursor_cbo = bool(cbos_solicitados)
     if last_id is not None:
-        where_str += "\n    AND (lc.ID_MAILING, lc.ID_COMPLEMENT) > (%s, %s)"
-        params.extend([int(last_id[0]), int(last_id[1])])
+        if cursor_cbo:
+            where_str += "\n    AND (e.id, lc.ID_MAILING, lc.ID_COMPLEMENT) > (%s, %s, %s)"
+        else:
+            where_str += "\n    AND (lc.ID_MAILING, lc.ID_COMPLEMENT) > (%s, %s)"
+        params.extend([int(v) for v in last_id])
     # ── QUERY FINAL ───────────────────────────────────────────────────────
     sql = f"""SELECT
     {select_str}
@@ -215,7 +224,10 @@ WHERE
     # Paginação cursor-based: ORDER BY chave composta + LIMIT, sem OFFSET.
     # (ID_MAILING, ID_COMPLEMENT) é a PK da tabela — garante ordem única.
     if limite is not None:
-        sql += "\nORDER BY lc.ID_MAILING, lc.ID_COMPLEMENT"
+        if cursor_cbo:
+            sql += "\nORDER BY e.id, lc.ID_MAILING, lc.ID_COMPLEMENT"
+        else:
+            sql += "\nORDER BY lc.ID_MAILING, lc.ID_COMPLEMENT"
         sql += "\nLIMIT %s"
         params.append(int(limite))
 

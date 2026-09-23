@@ -9,6 +9,8 @@ import PersonFilters from './PersonFilters';
 import PhoneFilters from './PhoneFilters';
 import DistribuicaoQuantidade from './DistribuicaoQuantidade';
 import ExcluirCpfsUpload from './ExcluirCpfsUpload';
+import { nomeBairro, partesBairro } from '../../utils/bairroChave';
+import { buildConsultaPayload } from '../../utils/buildConsultaPayload';
 
 const FILTROS_PADRAO = {
   // Localização
@@ -27,12 +29,18 @@ const FILTROS_PADRAO = {
   quantidade: 5000,
   // Profissão
   profissoes: [],
-  // Distribuição de quantidade por cidade e por bairro (independentes)
+  // Distribuição de quantidade por estado, cidade e por bairro
+  // (independentes). Chaves de bairro são "CIDADE::BAIRRO" (ver
+  // utils/bairroChave.js) — evita confundir bairros de mesmo nome em
+  // cidades diferentes. Distribuição por estado só aparece quando não há
+  // distribuição por cidade ativa (cidade é mais específica).
+  distribuicaoUfs: {},
   distribuicaoCidades: {},
   distribuicaoBairros: {},
-  // Mapa bairro → cidade (preenchido pelo LocationFilters ao carregar bairros)
-  bairrosCidadeMap: {},
-  // Proporção de gênero (só ativa quando genero === '')
+  // Proporção de gênero: só se aplica quando genero === '' (Ambos) e
+  // generoExato === true; por padrão pega o que houver disponível de cada
+  // gênero, sem forçar uma proporção.
+  generoExato: false,
   generoDistribuicao: { M: 50, F: 50 },
   // Exclusão de CPFs já obtidos: { token, quantidade, nomeArquivo } | null
   exclusaoCpfs: null,
@@ -44,22 +52,25 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
   const atualizar = (parcial) => {
     setFiltros((prev) => {
       const next = { ...prev, ...parcial };
-      // Limpa distribuições quando cidades ou bairros mudam
+      // Limpa distribuições quando ufs, cidades ou bairros mudam
+      if ('ufs' in parcial) {
+        next.distribuicaoUfs = {};
+      }
       if ('cidades' in parcial || 'ufs' in parcial) {
         next.distribuicaoCidades = {};
-        next.bairrosCidadeMap = {};
       }
       if ('bairros' in parcial || 'ufs' in parcial) {
         next.distribuicaoBairros = {};
       }
       // Reseta proporção de gênero ao mudar para M ou F
       if ('genero' in parcial && parcial.genero !== '') {
+        next.generoExato = false;
         next.generoDistribuicao = { M: 50, F: 50 };
       }
       return next;
     });
-    // Quantidade e bairrosCidadeMap não invalidam o token
-    const camposMetadado = new Set(['quantidade', 'bairrosCidadeMap']);
+    // Quantidade não invalida o token
+    const camposMetadado = new Set(['quantidade']);
     const somenteMetadado = Object.keys(parcial).every((k) => camposMetadado.has(k));
     if (!somenteMetadado) {
       onFiltrosChange?.();
@@ -80,62 +91,7 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
   }).length;
 
   const valido = filtros.ufs.length > 0;
-  const buildPayload = () => ({
-    ufs: filtros.ufs,
-    cidades: filtros.cidades,
-    bairros: filtros.bairros,
-    alta_renda: filtros.altaRenda || undefined,
-    genero: filtros.genero || undefined,
-    idade_min: filtros.idadeMin,
-    idade_max: filtros.idadeMax,
-    email: filtros.email === 'obrigatorio' ? 'obrigatorio' : undefined,
-    tipo_telefone: filtros.tipoTelefone !== 'ambos' ? filtros.tipoTelefone : undefined,
-    ddds: filtros.ddds.length > 0 ? filtros.ddds : undefined,
-    quantidade: filtros.quantidade,
-    cbos: filtros.profissoes.length > 0 ? filtros.profissoes : undefined,
-    exclusao_token: filtros.exclusaoCpfs?.token || undefined,
-    // proporção de gênero: só envia quando é ambos e não é 50/50
-    genero_distribuicao: (
-      filtros.genero === '' &&
-      (filtros.generoDistribuicao.M !== 50 || filtros.generoDistribuicao.F !== 50)
-    ) ? filtros.generoDistribuicao : undefined,
-    // distribuicao: três casos possíveis
-    distribuicao: (() => {
-      const temCidade = filtros.cidades.length > 1;
-      const temBairro = filtros.bairros.length > 1;
-      if (!temCidade && !temBairro) return undefined;
-
-      if (temCidade && temBairro) {
-        // Agrupar bairros por cidade e explodir em itens {cidade, bairros:[b], quantidade}
-        const grupos = {};
-        filtros.cidades.forEach((c) => { grupos[c] = []; });
-        filtros.bairros.forEach((b) => {
-          const c = filtros.bairrosCidadeMap[b];
-          if (c && grupos[c]) grupos[c].push(b);
-        });
-        const itens = [];
-        filtros.cidades.forEach((cidade) => {
-          const bairrosDaCidade = grupos[cidade] || [];
-          if (bairrosDaCidade.length === 0) {
-            // Cidade sem bairros selecionados: item só por cidade
-            itens.push({ cidade, quantidade: Number(filtros.distribuicaoCidades[cidade]) || 0 });
-          } else {
-            bairrosDaCidade.forEach((bairro) => {
-              itens.push({ cidade, bairros: [bairro], quantidade: Number(filtros.distribuicaoBairros[bairro]) || 0 });
-            });
-          }
-        });
-        return itens.length ? itens : undefined;
-      }
-
-      if (temCidade) {
-        return filtros.cidades.map((c) => ({ cidade: c, quantidade: Number(filtros.distribuicaoCidades[c]) || 0 }));
-      }
-
-      // Só bairros (única cidade ou sem distribuição de cidade)
-      return filtros.bairros.map((b) => ({ bairro: b, quantidade: Number(filtros.distribuicaoBairros[b]) || 0 }));
-    })(),
-  });
+  const buildPayload = () => buildConsultaPayload(filtros);
 
   return (
     <form onSubmit={(e) => e.preventDefault()}>
@@ -182,6 +138,20 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
         </div>
       </div>
 
+      {/* Distribuição por estado — só quando não há distribuição por cidade
+          ativa (cidade é mais específica e assume o controle da cota) */}
+      {filtros.ufs.length > 1 && filtros.cidades.length <= 1 && (
+        <div className="card-padrao mt-4">
+          <DistribuicaoQuantidade
+            itens={filtros.ufs}
+            total={filtros.quantidade}
+            valores={filtros.distribuicaoUfs}
+            onChange={(d) => atualizar({ distribuicaoUfs: d })}
+            label="uf"
+          />
+        </div>
+      )}
+
       {/* Distribuição por cidade */}
       {filtros.cidades.length > 1 && (
         <div className="card-padrao mt-4">
@@ -204,6 +174,7 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
             valores={filtros.distribuicaoBairros}
             onChange={(d) => atualizar({ distribuicaoBairros: d })}
             label="bairro"
+            rotulos={Object.fromEntries(filtros.bairros.map((chave) => [chave, nomeBairro(chave)]))}
           />
         </div>
       )}
@@ -212,9 +183,9 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
       {filtros.bairros.length > 1 && filtros.cidades.length > 1 && (() => {
         const grupos = {};
         filtros.cidades.forEach((c) => { grupos[c] = []; });
-        filtros.bairros.forEach((b) => {
-          const c = filtros.bairrosCidadeMap[b];
-          if (c && grupos[c]) grupos[c].push(b);
+        filtros.bairros.forEach((chave) => {
+          const { cidade: c } = partesBairro(chave);
+          if (c && grupos[c]) grupos[c].push(chave);
         });
         const cidadesComBairros = filtros.cidades.filter((c) => grupos[c]?.length > 0);
         if (!cidadesComBairros.length) return null;
@@ -233,7 +204,7 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
               const totalCidade = Number(filtros.distribuicaoCidades[cidade]) || filtros.quantidade;
               const bairrosDaCidade = grupos[cidade];
               const valoresBairros = Object.fromEntries(
-                bairrosDaCidade.map((b) => [b, filtros.distribuicaoBairros[b] || 0])
+                bairrosDaCidade.map((chave) => [chave, filtros.distribuicaoBairros[chave] || 0])
               );
               return (
                 <div key={cidade} style={{ marginBottom: '1.5rem' }}>
@@ -251,6 +222,7 @@ export default function FilterForm({ onContagem, onGerar, carregando, temToken, 
                     onChange={(d) => atualizar({ distribuicaoBairros: { ...filtros.distribuicaoBairros, ...d } })}
                     label="bairro"
                     semTitulo
+                    rotulos={Object.fromEntries(bairrosDaCidade.map((chave) => [chave, nomeBairro(chave)]))}
                   />
                 </div>
               );

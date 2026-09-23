@@ -35,9 +35,13 @@ DB_PASSWORD_ADMIN = os.environ.get("DB_PASSWORD_ADMIN", DB_PASSWORD)
 DB_CHARSET    = "utf8mb4"
 DB_AUTOCOMMIT = True
 
-# IMPORTANTE: banco de big data — sem timeout queries podem rodar horas
+# IMPORTANTE: banco de big data — sem timeout queries podem rodar horas.
+# READ_TIMEOUT alinhado a API_QUERY_TIMEOUT (backend/config.py) — precisa
+# ser >= o teto de execução no servidor, senão o socket do cliente corta a
+# leitura antes do MySQL terminar (consultas amplas por CBO passam de 120s
+# sem nenhum problema real, só volume de dados a ordenar).
 DB_CONNECT_TIMEOUT = int(os.environ.get("DB_CONNECT_TIMEOUT", "10"))
-DB_READ_TIMEOUT    = int(os.environ.get("DB_READ_TIMEOUT",    "120"))
+DB_READ_TIMEOUT    = int(os.environ.get("DB_READ_TIMEOUT",    "300"))
 DB_WRITE_TIMEOUT   = int(os.environ.get("DB_WRITE_TIMEOUT",   "30"))
 
 # ── Validação em produção ──────────────────────────────────────

@@ -2,6 +2,7 @@
 import os
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -26,6 +27,10 @@ def isolate_services(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "AUDIT_LOG_FILE", tmp_path / "audit.log")
     monkeypatch.setattr(config, "SECURITY_LOG_FILE", tmp_path / "security.log")
     monkeypatch.setattr(consulta, "_DIR_TEMP", tmp_path)
+    # _buscar_ate_quantidade abre a conexão uma vez para todos os lotes da
+    # partição (ver __init__.py); testes que só mockam _executar_query não
+    # precisam de uma conexão real por trás — devolve um dummy inofensivo.
+    monkeypatch.setattr(consulta, "_conectar_banco", lambda: MagicMock())
 
 
 @pytest.fixture

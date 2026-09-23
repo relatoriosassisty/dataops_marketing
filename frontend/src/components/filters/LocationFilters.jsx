@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react';
 import api from '../../services/api';
 import { IS_MOCK, MOCK_CIDADES, MOCK_BAIRROS } from '../../services/mockData';
+import { chaveBairro } from '../../utils/bairroChave';
 
 const UFS = [
   'AC','AL','AM','AP','BA','CE','DF','ES','GO','MA',
@@ -19,22 +20,29 @@ const UFS = [
 ];
 
 /* ── Componente de lista com busca ─────────────────────────────────────── */
+/* itens aceita strings simples ou { value, label } — usado quando o valor
+   interno (ex: "CIDADE::BAIRRO", para não confundir bairros de mesmo nome
+   em cidades diferentes) precisa de um rótulo mais legível na tela. */
 function ListaComBusca({ itens, selecionados, onChange, placeholder, carregando, desabilitado, msgVazia }) {
   const [busca, setBusca] = useState('');
   const inputRef = useRef(null);
 
-  const filtrados = busca.trim()
-    ? itens.filter((i) => i.toLowerCase().includes(busca.trim().toLowerCase()))
-    : itens;
+  const normalizados = itens.map((i) => (typeof i === 'string' ? { value: i, label: i } : i));
+  const labelPorValor = Object.fromEntries(normalizados.map((i) => [i.value, i.label]));
+  const rotulo = (valor) => labelPorValor[valor] ?? valor;
 
-  const toggle = (item) => {
-    const novo = selecionados.includes(item)
-      ? selecionados.filter((s) => s !== item)
-      : [...selecionados, item];
+  const filtrados = busca.trim()
+    ? normalizados.filter((i) => i.label.toLowerCase().includes(busca.trim().toLowerCase()))
+    : normalizados;
+
+  const toggle = (valor) => {
+    const novo = selecionados.includes(valor)
+      ? selecionados.filter((s) => s !== valor)
+      : [...selecionados, valor];
     onChange(novo);
   };
 
-  const remover = (item) => onChange(selecionados.filter((s) => s !== item));
+  const remover = (valor) => onChange(selecionados.filter((s) => s !== valor));
 
   return (
     <div>
@@ -58,7 +66,7 @@ function ListaComBusca({ itens, selecionados, onChange, placeholder, carregando,
               }}
             >
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>
-                {s}
+                {rotulo(s)}
               </span>
               <button
                 type="button"
@@ -127,11 +135,11 @@ function ListaComBusca({ itens, selecionados, onChange, placeholder, carregando,
               Nenhum resultado para "{busca}"
             </div>
           ) : (
-            filtrados.map((item) => {
-              const sel = selecionados.includes(item);
+            filtrados.map(({ value, label }) => {
+              const sel = selecionados.includes(value);
               return (
                 <label
-                  key={item}
+                  key={value}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -152,10 +160,10 @@ function ListaComBusca({ itens, selecionados, onChange, placeholder, carregando,
                   <input
                     type="checkbox"
                     checked={sel}
-                    onChange={() => toggle(item)}
+                    onChange={() => toggle(value)}
                     style={{ accentColor: 'var(--roxo-primario)', flexShrink: 0 }}
                   />
-                  {item}
+                  {label}
                 </label>
               );
             })
@@ -266,10 +274,22 @@ export default function LocationFilters({ valores, onChange }) {
 
     setCarregandoBairros(true);
 
+    const multiplasCidades = valores.cidades.length > 1;
+
     if (IS_MOCK) {
       const t = setTimeout(() => {
-        const todos = [...new Set(valores.cidades.flatMap((c) => MOCK_BAIRROS[c] || []))].sort();
-        setBairros(todos);
+        const vistos = new Set();
+        const itensBairros = [];
+        valores.cidades.forEach((cidade) => {
+          (MOCK_BAIRROS[cidade] || []).forEach((b) => {
+            const valor = chaveBairro(cidade, b);
+            if (vistos.has(valor)) return;
+            vistos.add(valor);
+            itensBairros.push({ value: valor, label: multiplasCidades ? `${b} — ${cidade}` : b });
+          });
+        });
+        itensBairros.sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+        setBairros(itensBairros);
         setCarregandoBairros(false);
       }, 300);
       return () => clearTimeout(t);
@@ -296,17 +316,21 @@ export default function LocationFilters({ valores, onChange }) {
       )
         .then((results) => {
           if (cancelled) return;
-          const novoMapa = {};
-          const todos = [];
+          // Cada bairro fica identificado por cidade+nome — bairros com o
+          // mesmo nome em cidades diferentes (ex: "CENTRO") não se confundem.
+          const vistos = new Set();
+          const itensBairros = [];
           results.forEach(({ cidade, bairros: lista }) => {
             lista.forEach((b) => {
-              if (!novoMapa[b]) novoMapa[b] = cidade;
-              todos.push(b);
+              const valor = chaveBairro(cidade, b);
+              if (vistos.has(valor)) return;
+              vistos.add(valor);
+              itensBairros.push({ value: valor, label: multiplasCidades ? `${b} — ${cidade}` : b });
             });
           });
-          setBairros([...new Set(todos)].sort());
+          itensBairros.sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+          setBairros(itensBairros);
           setErroBairros(results.some((r) => r.falhou));
-          onChange({ bairrosCidadeMap: novoMapa });
         })
         .catch(() => {})
         .finally(() => { if (!cancelled) setCarregandoBairros(false); });
@@ -351,6 +375,11 @@ export default function LocationFilters({ valores, onChange }) {
       <div className="mb-3">
         <label className="form-label fw-semibold" style={{ color: 'var(--roxo-escuro)' }}>
           Estado (UF) <span className="text-danger">*</span>
+          {valores.ufs?.length > 1 && valores.cidades?.length <= 1 && (
+            <span style={{ marginLeft: '0.5rem', fontWeight: 400, fontSize: '0.78rem', color: 'var(--texto-terciario)' }}>
+              · distribuição disponível abaixo
+            </span>
+          )}
         </label>
         <div
           style={{
